@@ -1,0 +1,103 @@
+name: Release
+
+# 推送 v* 标签时自动发布 Release，资产直接从官网主站取，并用 version.json
+# 里的 SHA-256 做完整性校验。这样发版不需要任何本地凭据。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的标签，例如 v2.3.49'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 解析标签
+        id: tag
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: 读取版本清单
+        run: |
+          curl -fsSLk --retry 3 --retry-delay 5 --max-time 60 \
+            https://desk.yomm.top:8443/version.json -o version.json
+          cat version.json
+
+      - name: 下载安装包
+        run: |
+          DESK_FILE=$(jq -r .desktopFile version.json)
+          DESK_URL="https://desk.yomm.top:8443/updates/${DESK_FILE}"
+          APK_URL=$(jq -r .apkUrl version.json)
+          APK_FILE="InDesk_$(jq -r .apkVersion version.json).apk"
+          echo "desktop -> $DESK_FILE"
+          echo "apk     -> $APK_FILE"
+          curl -fSLk --retry 3 --retry-delay 5 --max-time 900 "$DESK_URL" -o "$DESK_FILE"
+          curl -fSLk --retry 3 --retry-delay 5 --max-time 300 "$APK_URL" -o "$APK_FILE"
+          ls -l "$DESK_FILE" "$APK_FILE"
+          echo "DESK_FILE=$DESK_FILE" >> "$GITHUB_ENV"
+          echo "APK_FILE=$APK_FILE" >> "$GITHUB_ENV"
+
+      - name: 校验 SHA-256
+        run: |
+          set -e
+          EXPECT_DESK=$(jq -r '.desktopSha256 // empty' version.json)
+          ACTUAL_DESK=$(sha256sum "$DESK_FILE" | cut -d' ' -f1)
+          echo "desktop 期望: $EXPECT_DESK"
+          echo "desktop 实际: $ACTUAL_DESK"
+          if [ -n "$EXPECT_DESK" ] && [ "$EXPECT_DESK" != "$ACTUAL_DESK" ]; then
+            echo "::error::桌面安装包校验失败，拒绝发布"; exit 1
+          fi
+          EXPECT_APK=$(jq -r '.apkSha256 // empty' version.json)
+          ACTUAL_APK=$(sha256sum "$APK_FILE" | cut -d' ' -f1)
+          echo "apk 实际: $ACTUAL_APK"
+          if [ -n "$EXPECT_APK" ] && [ "$EXPECT_APK" != "$ACTUAL_APK" ]; then
+            echo "::error::APK 校验失败，拒绝发布"; exit 1
+          fi
+
+      - name: 生成发行说明
+        run: |
+          {
+            echo "## 下载"
+            echo ""
+            echo "| 平台 | 文件 | 版本 |"
+            echo "|---|---|---|"
+            echo "| Windows x64 | \`$DESK_FILE\` | $(jq -r .desktopVersion version.json) |"
+            echo "| Android | \`$APK_FILE\` | $(jq -r .apkVersion version.json) |"
+            echo ""
+            echo "## Windows 本版更新"
+            echo ""
+            jq -r .desktopNotes version.json
+            echo ""
+            echo "## 校验值"
+            echo ""
+            echo '```'
+            sha256sum "$DESK_FILE" "$APK_FILE"
+            echo '```'
+            echo ""
+            echo "## 注意"
+            echo ""
+            echo "本仓库只发布**客户端**。服务端（信令 / 中继 / 账号）未开源，需要用你自己的实例，否则装上也连不上任何设备。详见 README。"
+          } > notes.md
+          cat notes.md
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DESK_FILE" "$APK_FILE" --clobber
+          else
+            gh release create "$TAG" \
+              --title "InDesk $(jq -r .desktopVersion version.json)" \
+              --notes-file notes.md \
+              "$DESK_FILE" "$APK_FILE"
+          fi
