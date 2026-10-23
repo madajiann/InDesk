@@ -1,0 +1,1135 @@
+/* ============================================================================
+   InDesk 界面贴片  ui-patch v11  (2026-09-24)
+   ----------------------------------------------------------------------------
+   产物层补丁：
+     · 不修改 20260921.18 定版的任何文件（719 个 assets 一个都不碰）
+     · 只由 index.html 额外引入本文件与 ui-patch.js
+     · 删除 index.html 里对应的 <link>/<script> 两行，即完全回退
+
+   v6 修订（用户 2026-09-24 反馈的三条）：
+
+     A. 「电脑版全屏数据栏还是横显，直接超出屏幕到空白区域，非常丑」
+        → 定位口径错了：v5 把卡片**居中**放在留白里（right = (留白−卡宽)/2），
+          而且阈值高达 176px —— 留白 72~175px（16:10 / 4:3 被控端全屏时极常见）
+          一律退回**横排**，横条就跨在"画面 + 黑边"上。
+        → v6 在 ui-patch.js 里改：阈值 72px；卡片**左边缘固定吸附在
+          「画面右边缘 + 6px」**（--idsb-right = 留白 − 6 − 卡宽）
+          ⇒ 大留白时卡片贴画面、右侧留空（不再"吸附窗口最右侧"）；
+            小留白时卡片填满留白、右距恒 6px，绝不压到画面。
+        → 竖列时的字号/内距曲线同步收紧（k 下探到 0.70），窄卡也不溢出。
+
+     B. 「连接上就提示界面恢复中，非常影响体验」（手机流量 / 弱网必现）
+        → 定版 #indesk-recovery-overlay 是 **整屏 rgba(13,16,23,.96) 不透明黑**
+          + 22px 居中大字；只要 3 秒没新帧就盖上。弱网帧间隔动不动 >3s。
+        → v6 只改外观（**绝不碰它的 display**，那是定版的显隐开关）：
+          遮罩压到极轻（.34）、标题缩成底部一行小字、诊断文本压到 9px 半透明
+          ⇒ **画面最后一帧始终可见**，观感从"断线黑屏"变成"轻微卡一下"。
+
+     C. 「手机版图标按钮打开的菜单：从新设计，别把电脑端按钮硬塞进来，
+         面积太大、功能用不到，而且连个返回按钮都没有」
+        → 定版把电脑端整套设置塞进手机面板，唯一的按钮是"关闭连接"（＝断线），
+          **没有任何收起面板的控件**。
+        → v6：顶部注入「连接详情 + ✕」栏（✕ 由 ui-patch.js 派发给 .logo-btn，
+          走定版自己的显隐开关）；隐藏手机用不到的 7 项
+          （鼠标 / 虚拟鼠标 / 码率 / 帧率 / 分辨率 / 视频内容 / 音频内容）；
+          字号与内距整体收紧，面板高度随之明显变小。
+
+   v7 修订（用户 2026-09-24 追加的两条）：
+     D. 「电脑端连接，图标按钮点开，分辨率那行 2160P 超出底色框外了」
+        实测：分辨率行是 6 个 RadioButton（360P…2160P），合计 392~399px，
+              而该行可用宽只有 364px —— 处在临界，随分辨率/字体/选项数在溢出线上跳。
+        修法（第 4.3 段）：该行 radio group 强制可换行 + 按钮不许压扁 ⇒ 永不越界。
+        只带 html.indesk-pc，手机端零改动。
+     E. 「手机端竖屏，点图标按钮出来的菜单框有点靠下，往上一点，
+         要不然还得滑动一下才能看完整」（用户明确：横屏先别动）
+        实测（390×844）：面板距底 62px、max-height=52vh(360px) —— 压在屏幕下半部。
+        修法（第 5 段，仅竖屏段）：距底 62 → 104px；max-height 52vh → 64vh。
+
+   v9 / v10 修订（用户 2026-09-24 追加的三条；v10 只订正 v9 的一处底色误判）：
+
+     F. 「电脑端 2160P 没了不显示了，你是去掉了吗？」
+        → 不是删了，是 **v7 修法的副作用**：v7 让该行可换行，而该行可用宽只有
+          364px、6 颗按钮合计 394px ⇒ 1440P 留在第一行、**2160P 被折到第二行**
+          （无头实测 2160P 的 y 由 403 跳到 437），看起来就像"少了一个档"。
+        → v9 修法：**不换行 + 收窄按钮内距**（n-radio-group 不换行、
+          按钮左右 padding 6px、文字容器 .n-radio__label 内距归零）。
+          实测 6 颗宽 46/45/45/53/53/54、起 x=131、最右 433 < 边界 495、
+          6 颗 y 全 = 403、over=0 ⇒ 同排 + 完整可见 + 不越界。
+        → ⚠️ 类名纠错：按钮文字容器是 **.n-radio__label**；v7 写的
+          `.n-radio-button__label` 在真实 DOM 里不存在（那条规则从未命中）。
+
+     G. 「图标按钮，这个菜单顶部也是有一堆文字，你这个没有改啊」
+        → 取证：手机端面板 .info 的 DOM 顺序 = .debug-area / **.diag-pre** /
+          .link-config(.ink-mbar …)；.diag-pre 在面板**最顶端**、宽度满屏，
+          承载 ICE/候选/码率等长诊断文本 ⇒ 就是"顶部那一堆文字"。
+        → v9 修法：手机端窄屏下 `.diag-pre { display: none }`。
+
+     H. 「手机端底部导航点一个按钮，界面就出现一次 LOGO 白底图，
+          不应该是直接切换过去吗，为什么还要过渡界面？」
+        → **网页层没有任何过渡画面**（可复核）：依次点底栏 4 项，
+          hash 走 #/remote → #/deviceManage → #/setting → #/login，
+          全程 .sidebar 都在、.logo-mark 不出现、performance.timeOrigin 恒定、
+          pagehide/beforeunload 计数为 0 ⇒ 纯 hash 路由，无整页重载。
+        → 网页层能做的只有一件事：**保证内容区永不透明**（第 8 段）。
+        → ⚠️ v10 订正底色：v9 铺的是 #0f172a —— 那是**误判**（见下）。
+        → ⚠️ **真凶不在网页层**：手机壳 `MainActivity` 的
+          `onPageStarted()` → `setStatus(70,"加载界面")` → `loadingPanel.setVisibility(VISIBLE)`，
+          而 loading_panel 就是「#F7FAFC 底 + 92dp InDesk 图标 + 进度条」，
+          `onPageFinished()` 250ms 后才 GONE ⇒ 每次 WebView 触发一次页面导航，
+          就会闪一次这个原生面板。**要彻底消掉必须改壳（APK）**，贴片层做不到。
+
+     ⚠️ v10 底色订正说明（#0f172a → #f7fafc）：
+        · #0f172a 在定版 index-Dk_s6zEn.css 里只作**文字色 / 遮罩 / 阴影**
+          （color:#0f172a、background:#0f172a73、#0f172a40），**不是背景色**；
+        · 手机壳真正垫在 WebView 底下的是 **#F7FAFC**（三处一致：
+          splash_background.xml 的 solid、activity_main.xml 根 FrameLayout、
+          loading_panel），且根 FrameLayout **不透明** ⇒ 本来就不会透出图标；
+        · ⇒ 铺 #f7fafc 与现状**零色差**，只保证"内容区永不为透明"；
+          铺 #0f172a 反而会在**浅色页**（设备列表 / 高级设置）上凭空造出一次深色闪。
+
+   v11 修订（用户 2026-09-24 追加的三条；全部只作用于手机端，电脑端/网页版零影响）：
+
+     I. 「你的退出账号为什么挤在底部导航栏的右上角？很难看。你把它放到账号信息里啊，
+          点开账号信息，里面加上退出登录不行吗？」
+        → 真因：v8 把 .item.indesk-logout **追加进 .sidebar .list 末尾**。而定版
+          .list 里本来只有 5 项（第 5 项就是"账号信息/账号登录"入口），手机端
+          ≤820px 时 .sidebar 变底部导航栏、.item 全部 flex:1 均分
+          ⇒ 追加的第 6 项独占最右一格、还是高饱和红 ⇒ 用户看到的"吊在导航栏
+          右上角的小红块"。
+        → v11 修法：**撤回底栏/侧栏的任何注入**（底栏恢复定版原样），
+          改为把按钮注入「账号信息」弹窗 .acc-body 的**底部**（第 10 段）。
+          ⚠️ 不需要另造入口：手机端底栏第 5 项在已登录时本来就显示"账号信息"，
+            点它即弹出定版账号信息弹窗（.acc-card）—— 用户原话
+            "点开账号信息，里面加上退出登录" 说的就是这个弹窗。
+
+     J. 「设备列表那个页面很垃圾，你去给我丰富一下，最起码的设备状态、
+          最后一次连接时间，等等你看这丰富，页面的设计都要搞」
+        → 线上产物事实：#/deviceManage 只渲染一行**裸 UUID 文本**（.left，16px）
+          + 一个用 1px 细线画的删除叉，行高 40px，外面套 max-height:200px 滚动框。
+        → v11 修法（第 11 段）：手机端改白底卡片，每张卡呈现
+            设备名 · 在线状态徽章 · 设备码(9位→123-456-789) · IP · 最后连接时间
+          + 保留定版删除按钮（点击仍是定版自己的 handleDelLinkDeviceList）。
+          数据来源（全部真实，不编）：
+            · 在线状态 / 设备名 / IP → 定版同款接口
+              GET /desk_user/find_receiver_by_uuid?uuid=  （定版 remote 页
+              refreshOnlineState() 用的就是它：code===200 && data.receiver ⇒ 在线，
+              并回填 data.name / data.ip）
+            · 设备码 → 定版同款 formatDeviceCode()（9 位数字 → 123-456-789）
+            · **最后连接时间 → 定版本地缓存没有这个字段**
+              （linkDeviceList 只有 remoteDeskUserUuid / Password / name? / ip?），
+              ⇒ 由贴片 JS 自建本地台账（localStorage 键 indesk___link-log），
+                在**真正连上并出帧**时打点。首装时台账为空 ⇒ 显示「—」，
+                不做任何假数据、不伪造历史。
+
+     K. 「高级设置页面也是一样，现在太简陋，有的拐到第二行，排版很差很差，
+          把这个页面也需要从新设计优化！」
+        → 线上产物事实：.item{display:flex} + .label{width:100px;text-align:right;
+          margin-right:20px} + .value{flex:1}，而 .container 左右各 40px 内距
+          ⇒ 390px 机型：40+100+20=160px 被吃掉，.value 只剩约 190px，
+            wss/axios/coturn 三行地址必然折行；"下载客户端"两个 .client-btn
+            各 160px(120+40) + 10px 间距 = 330px > 310px ⇒ **也必然折行**。
+        → v11 修法（第 11 段）：手机端改白底卡片（label 变卡片标题、value 撑满、
+          40px 内距→12px、卡片间 20px 的 .hr 横线隐去），
+          并由 ui-patch.js 按块名注入定版同款线性图标。
+
+   配色全部沿用 .18 原设计（不自行选色）：
+     · 数据栏底色 rgba(17,19,26,.74) / 文字 #e9ecf3 / 次文字 #9aa3b5 / 主色 #5b8def
+     · v11 卡片配色取自定版产物里真实存在的值（不新造）：
+       卡片 #fff + radius 14 + shadow 0 2px 10px rgba(15,23,42,.06)
+       标题 #0f172a(15px/600，= remote 页 .m-sec)
+       主文 #333 · 次文 #9298a3(12px) · 分隔 #f1f5f9
+       徽章 在线 #e7f7ea/#21a34b · 离线 #f1f5f9/#94a3b8 · 检测中 #f0f1f4/#9298a3
+       空态 #94a3b8 · 极淡底 #f2f5fb · 卡片按下 #f8fafc
+       账号弹窗描边 #eef0f4 · 危险红 #f7564d（= 定版 .item.logout 悬停色）
+   ============================================================================ */
+
+/* ==========================================================================
+   1) 圆圈按钮（.drag）：保持 .18 原样 —— 本文件对 .drag 自身 **零条规则**
+      .18 原样：.drag 是 position:fixed、76×76，位置由 JS（VueUse useDraggable，
+      left:40px/top:40px 内联）控制，可自由拖动。
+      任何 !important 覆盖都会打赢内联样式 → 按钮拖不动。**永远不要动它。**
+   ========================================================================== */
+
+/* ==========================================================================
+   2) 电脑端：面板防塌陷修正
+      .18 里 .debug-info 是 position:absolute，.info 面板的高度靠 .diag-pre
+      （那段长文）撑。下面第 3 段隐藏了长文 → 正常流内容为空 → 面板塌成一条。
+   ========================================================================== */
+html.indesk-pc .drag .info .debug-info,
+html.indesk-pc .drag .info .debug-info[data-v-178b9ee0] {
+  position: static !important;
+  padding-right: 0 !important;
+}
+
+/* ==========================================================================
+   3) 电脑端：隐藏 diag-pre（那段长诊断文本）
+      手机端【保留】—— 源码注释写明它是手机唯一的现场取证出口（手机没有 F12）
+   ========================================================================== */
+html.indesk-pc .diag-pre,
+html.indesk-pc .diag-pre[data-v-178b9ee0] {
+  display: none !important;
+}
+
+/* ==========================================================================
+   4) 【数据栏 .idsb】—— 定位 + 尺寸自适应
+      .18 原样：JS 每 500ms 用内联 style 写 left/top（placement="corner"）。
+      ⇒ 定位只能靠本文件里的 !important（样式表 !important 打赢内联普通声明）。
+      ⇒ 属性 data-o / html 上的 class 与 CSS 变量由 ui-patch.js 维护，.18 不碰。
+      **所有规则带 html.indesk-pc → 手机端一个字节都不碰。**
+   ========================================================================== */
+
+/* 4.1) 非全屏（以及"全屏但没有右侧留白"）：右上角横排
+       字号全部 clamp(px, vw, px) → 1080p / 2K / 4K / 小窗口自动缩放 */
+html.indesk-pc .idsb {
+  left: auto !important;
+  right: 12px !important;
+  top: 12px !important;
+  bottom: auto !important;
+  font-size: clamp(11px, 0.95vw, 14px) !important;
+  padding: clamp(6px, 0.5vw, 9px) clamp(9px, 0.8vw, 14px) !important;
+  gap: clamp(9px, 1vw, 15px) !important;
+  border-radius: 11px !important;
+  /* 窗口很窄时不越出屏幕（宁可换行也不顶出去） */
+  max-width: calc(100vw - 24px) !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-end !important;
+  /* 非 sbfit 时一律横排：.18 的 data-o="v" 样式在"画面铺满、没有留白"的
+     全屏下会把角落那一条也变竖列。公告写的是"退回右上角横排"，这里强制 row。
+     specificity (0,2,1) > .idsb[data-o="v"] (0,2,0)，两边都 !important 时本条赢。 */
+  flex-direction: row !important;
+}
+html.indesk-pc .idsb[data-c="1"] {
+  padding: clamp(6px, 0.5vw, 9px) clamp(7px, 0.7vw, 11px) !important;
+  gap: 0 !important;
+}
+html.indesk-pc .idsb .idsb-hlv { font-size: clamp(15px, 1.45vw, 22px) !important; }
+html.indesk-pc .idsb .idsb-hlu { font-size: clamp(10px, 0.8vw, 12px) !important; }
+html.indesk-pc .idsb .idsb-hlk { font-size: clamp(10px, 0.8vw, 12px) !important; }
+html.indesk-pc .idsb .idsb-i > b  { font-size: clamp(10px, 0.9vw, 13px) !important; }
+html.indesk-pc .idsb .idsb-i > em { font-size: clamp(11px, 1.05vw, 15px) !important; }
+html.indesk-pc .idsb .idsb-h     { font-size: 11px !important; padding: 3px 6px !important; }
+html.indesk-pc .idsb .idsb-dot   { width: 8px !important; height: 8px !important; }
+
+/* 4.2) 全屏「且画面右侧确有留白（≥72px）」→ 竖直居中、贴画面右边缘的竖列信息卡
+       触发条件 html.indesk-sbfit 由 ui-patch.js 实测后挂上：
+         取远程画面真实显示宽度（videoWidth/Height + contain 换算），
+         右侧留白 = (视口宽 - 画面宽) / 2。
+       位置口径（v6）：--idsb-right = 留白 − 6 − 卡宽，即
+         **卡片左边缘恒等于「画面右边缘 + 6px」** —— 贴画面、不贴窗口最右。
+       宽度 --idsb-w 也由 JS 算（240px 封顶、留白 − 12px，下限 60px），
+       字号统一乘 --idsb-k（0.70~1，随卡片宽度缩放）→ 窄留白自动小一圈，
+       绝不会顶出留白压到画面上。JS 未运行时用 var() 兜底值，同样安全。 */
+html.indesk-pc.indesk-sbfit .idsb,
+html.indesk-pc.indesk-sbfit:fullscreen .idsb,
+html.indesk-pc.indesk-sbfit:-webkit-full-screen .idsb {
+  left: auto !important;
+  right: var(--idsb-right, 16px) !important;
+  top: 50% !important;
+  bottom: auto !important;
+  transform: translateY(-50%) !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  width: var(--idsb-w, 200px) !important;
+  max-width: var(--idsb-w, 200px) !important;
+  padding: calc(11px * var(--idsb-k, 1)) calc(13px * var(--idsb-k, 1)) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .45) !important;
+}
+
+/* 竖列时的内部对齐与字号（复刻并放大 .18 自带的 .idsb[data-o="v"] 规则，不改配色） */
+html.indesk-pc.indesk-sbfit .idsb .idsb-hl {
+  justify-content: center !important;
+  gap: calc(4px * var(--idsb-k, 1)) !important;
+}
+html.indesk-pc.indesk-sbfit .idsb .idsb-hlv {
+  font-size: calc(30px * var(--idsb-k, 1)) !important;
+  font-weight: 700 !important;
+  letter-spacing: -.5px !important;
+}
+html.indesk-pc.indesk-sbfit .idsb .idsb-hlu {
+  font-size: calc(13px * var(--idsb-k, 1)) !important;
+}
+html.indesk-pc.indesk-sbfit .idsb .idsb-hlk {
+  margin-left: 0 !important;
+  text-align: center !important;
+  font-size: calc(13px * var(--idsb-k, 1)) !important;
+}
+html.indesk-pc.indesk-sbfit .idsb .idsb-i {
+  justify-content: space-between !important;
+  align-items: baseline !important;
+  gap: calc(6px * var(--idsb-k, 1)) !important;
+  padding: calc(5px * var(--idsb-k, 1)) 0 !important;
+  min-width: 0 !important;
+}
+/* 条目之间加一条极淡分隔线（中性白，不是自选品牌色） */
+html.indesk-pc.indesk-sbfit .idsb .idsb-i + .idsb-i {
+  border-top: 1px solid rgba(255, 255, 255, .10) !important;
+}
+html.indesk-pc.indesk-sbfit .idsb .idsb-i > b {
+  font-size: calc(12px * var(--idsb-k, 1)) !important;
+  white-space: nowrap !important;
+}
+html.indesk-pc.indesk-sbfit .idsb .idsb-i > em {
+  font-size: calc(15px * var(--idsb-k, 1)) !important;
+  white-space: nowrap !important;
+}
+html.indesk-pc.indesk-sbfit .idsb .idsb-h {
+  align-self: center !important;
+  margin: calc(8px * var(--idsb-k, 1)) 0 0 !important;
+  font-size: 12px !important;
+  padding: 4px 12px !important;
+  border-radius: 7px !important;
+}
+html.indesk-pc.indesk-sbfit .idsb .idsb-dot {
+  width: 9px !important;
+  height: 9px !important;
+  align-self: center !important;
+  margin-bottom: calc(6px * var(--idsb-k, 1)) !important;
+}
+
+/* ==========================================================================
+   4.3) 【v9 重做】电脑端：设置区 radio 行 —— 既不越出底框，也绝不许折行
+      v7 曾把这一行改成 flex-wrap:wrap（"装不下就整颗折到下一行"），实测**不可接受**：
+        1440×900 / 面板 .info 480px ⇒ 该行可用 364px，6 颗按钮合计 394px
+        ⇒ wrap 之后 1440P 留在第一行、**2160P 单独折到第二行**
+        （无头实测：2160P 的 y 由 403 跳到 437）→ 用户反馈"2160P 没了、不显示了"。
+      v9 修法：**不换行** + **收紧按钮内距**（把 6 颗压回 364px 以内）。
+        · .n-radio-group            → flex-wrap: nowrap
+        · .n-radio-button           → 左右 padding 6px（原约 16px）
+        · 文字容器 .n-radio__label  → 内距归零
+      无头实测（1600×900 → 面板 480 / 该行 364）：
+        6 颗宽 46/45/45/53/53/54，起 x=131，最右 433 < 边界 495；
+        over=0（无横向溢出），6 颗 y 全 = 403 ⇒ **同排 + 完整可见 + 不越界**。
+      ⚠️ 类名纠错：按钮文字容器是 .n-radio__label；v7 写的 .n-radio-button__label
+         在真实 DOM 里并不存在（那条规则从未命中，属无效代码）。
+      ⚠️ 只带 html.indesk-pc ⇒ 手机端一个字节都不碰（手机端该行本就隐藏）。
+   ========================================================================== */
+html.indesk-pc .drag .info .link-config .lc-row .n-radio-group {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  min-width: 0 !important;
+}
+html.indesk-pc .drag .info .link-config .lc-row .n-radio-group .n-radio-button {
+  flex: 0 0 auto !important;
+  min-width: 0 !important;
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}
+html.indesk-pc .drag .info .link-config .lc-row .n-radio-group .n-radio-button .n-radio__label {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* ==========================================================================
+   5) 手机端：【连接详情】面板（点 LOGO 打开的那个）
+      修的是"点了没反应"的真相 —— 见 v4 说明：
+        .18 手机端写 .info{left:10px;right:10px;bottom:64px}，可 .info 是
+        position:absolute、包含块是**只有 46px 宽的 .drag**（且 .drag 是
+        position:fixed，本身就是包含块）⇒ 宽度算成 26px、bottom 算成屏幕上方
+        ⇒ 整块面板在屏幕外 → 点了什么都看不到。
+      修法：手机端 .info 改 position:fixed（.18 手机端已强制 .drag 的
+        transform:none，不会形成 fixed 的包含块）→ 真正相对视口布局。
+      v5：高度 max-height: min(56vh, 100dvh-130px) + overflow-y:auto → 永不越界；
+          z-index: 2147483001 压过数据栏；横屏改侧边抽屉并避让数据栏。
+      v6：① 顶部注入「连接详情 + ✕」栏（.ink-mbar，✕ 收起面板）
+          ② 隐藏手机用不到的 7 项（[data-ink-hide]）
+          ③ 整体收紧：标题 12px、行距/内距变小、隐藏长提示 .lc-hint
+      条件：手机 UA(html.indesk-mobile) 且窄屏 → 电脑端/网页版不受影响。
+   ========================================================================== */
+@media (max-width: 820px) {
+  html.indesk-mobile .webrtc-wrap .drag .info,
+  html.indesk-mobile .webrtc-wrap .drag .info[data-v-178b9ee0] {
+    position: fixed !important;
+    left: 10px !important;
+    right: 10px !important;
+    top: auto !important;
+    /* [v7] 用户反馈：'竖屏点图标按钮，出来的菜单框有点靠下，往上一点，
+          要不然还得滑动一下才能看完整'（横屏明确说先别动）。
+       无头实测（390×844）：面板 top=299 / 距底 62px / 高 332 / maxH=360(52vh)
+       —— 整块压在屏幕下半部。
+       改：距底 62px → 104px（整体上移约 42px，仍避开右下角悬浮球）；
+           max-height 52vh → 64vh（该机型 360px → 443px）⇒ 内容多时也不用滑。 */
+    bottom: calc(104px + env(safe-area-inset-bottom, 0px)) !important;
+    width: auto !important;
+    max-width: none !important;
+    /* 高度自适应：屏高再矮也不会顶出屏幕 */
+    max-height: min(64vh, calc(100dvh - 166px)) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    box-sizing: border-box !important;
+    padding: 10px 12px 12px !important;
+    border-radius: 16px !important;
+    font-size: 13px !important;
+    /* 必须压过数据栏 .idsb(z-index:2147483000)，否则横屏会被它盖住 */
+    z-index: 2147483001 !important;
+    box-shadow: 0 14px 44px rgba(0, 0, 0, .42) !important;
+  }
+
+  /* 5-a) 【v6 新增】顶部「连接详情 + ✕ 收起」栏
+         面板显隐由 Vue 变量控制（.info.show），✕ 由 ui-patch.js 派发点击给
+         .logo-btn（定版自己的开关）。这里只负责外观。 */
+  html.indesk-mobile .webrtc-wrap .drag .info .ink-mbar {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    margin: 0 0 8px !important;
+    padding: 0 0 8px !important;
+    border-bottom: 1px solid #eceef2 !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .ink-mbar .ink-mtitle {
+    color: #333 !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    line-height: 1.2 !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .ink-mbar .ink-mclose {
+    flex: 0 0 auto !important;
+    width: 30px !important;
+    height: 30px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    background: #f1f3f6 !important;
+    color: #555b66 !important;
+    font-size: 15px !important;
+    line-height: 1 !important;
+    cursor: pointer !important;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .ink-mbar .ink-mclose:active {
+    background: #e3e7ed !important;
+  }
+
+  /* 5-b) 【v6 新增】隐藏手机用不到的项（由 ui-patch.js 按 .lc-label 文本打标） */
+  html.indesk-mobile .webrtc-wrap .drag .info .lc-row[data-ink-hide="1"] {
+    display: none !important;
+  }
+
+  /* 触摸目标：适度放大（上一版 30px 被反馈"太大"） */
+  html.indesk-mobile .webrtc-wrap .drag .info .debug-area,
+  html.indesk-mobile .webrtc-wrap .drag .info .debug-area[data-v-178b9ee0] {
+    width: 24px !important;
+    height: 24px !important;
+  }
+
+  /* 诊断长文：保留（手机唯一取证出口），但压到最低存在感 */
+  html.indesk-mobile .webrtc-wrap .drag .info .diag-pre,
+  html.indesk-mobile .webrtc-wrap .drag .info .diag-pre[data-v-178b9ee0] {
+    max-height: 10vh !important;
+    font-size: 11px !important;
+    opacity: .72 !important;
+  }
+
+  /* 调试信息行：.18 里是 absolute 贴面板右下角，会跟底部「断开连接」叠在一起
+     → 回到正常流（和电脑端同一处理） */
+  html.indesk-mobile .webrtc-wrap .drag .info .debug-info,
+  html.indesk-mobile .webrtc-wrap .drag .info .debug-info[data-v-178b9ee0] {
+    position: static !important;
+    padding-right: 0 !important;
+  }
+
+  /* 设置区：紧凑（v6 再收一档：整块内距变小） */
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config,
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config[data-v-178b9ee0] {
+    margin-top: 0 !important;
+    padding: 10px !important;
+    gap: 8px 0 !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-title,
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-title[data-v-178b9ee0] {
+    font-size: 12px !important;
+    padding-bottom: 6px !important;
+    margin-bottom: 5px !important;
+  }
+  /* 手机端不显示长提示（那是电脑端的说明文字，占两三行） */
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-title .lc-hint,
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-title .lc-hint[data-v-178b9ee0] {
+    display: none !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-row,
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-row[data-v-178b9ee0] {
+    row-gap: 6px !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-row .lc-label,
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-row .lc-label[data-v-178b9ee0] {
+    /* 72px：装得下「剪贴板同步」5 个字（13px 字号需 ~66px），58px 时会被挤成两行 */
+    width: 72px !important;
+    flex: 0 0 72px !important;
+    font-size: 13px !important;
+    white-space: nowrap !important;
+  }
+  /* 关闭按钮：够大拇指点、但不再巨大 */
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-footer .lc-close,
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-footer .lc-close[data-v-178b9ee0] {
+    padding: 9px 26px !important;
+    font-size: 14px !important;
+    border-radius: 8px !important;
+  }
+}
+
+/* 5.1) 手机横屏（矮屏）：改成侧边抽屉
+        宽度 min(340px, 46vw) 自适应；左右由 JS 下发变量决定，
+        默认靠左（避开右上角的 LOGO 按钮；数据栏若在左半屏，JS 会翻到右侧）。
+      ⚠️ 这里**必须自带全套属性**：iPhone 类机型横屏的 CSS 宽度是 844px（>820），
+         命不中上面那段 @media(max-width:820px)，只写"覆盖"会导致横屏完全没有
+         手机面板样式。 */
+@media (orientation: landscape) and (max-height: 560px) {
+  html.indesk-mobile .webrtc-wrap .drag .info,
+  html.indesk-mobile .webrtc-wrap .drag .info[data-v-178b9ee0] {
+    position: fixed !important;
+    left: var(--idsp-left, 10px) !important;
+    right: var(--idsp-right, auto) !important;
+    top: 10px !important;
+    bottom: 10px !important;
+    width: min(340px, 46vw) !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    box-sizing: border-box !important;
+    padding: 10px 12px 12px !important;
+    border-radius: 14px !important;
+    font-size: 13px !important;
+    z-index: 2147483001 !important;
+    box-shadow: 0 14px 44px rgba(0, 0, 0, .42) !important;
+  }
+  /* v6：横屏段也自带「顶栏 + 精简」这两条，命不中 820 那段时同样生效 */
+  html.indesk-mobile .webrtc-wrap .drag .info .ink-mbar {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    margin: 0 0 8px !important;
+    padding: 0 0 8px !important;
+    border-bottom: 1px solid #eceef2 !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .ink-mbar .ink-mtitle {
+    color: #333 !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .ink-mbar .ink-mclose {
+    flex: 0 0 auto !important;
+    width: 30px !important;
+    height: 30px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    background: #f1f3f6 !important;
+    color: #555b66 !important;
+    font-size: 15px !important;
+    line-height: 1 !important;
+    cursor: pointer !important;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .lc-row[data-ink-hide="1"] {
+    display: none !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .lc-title .lc-hint {
+    display: none !important;
+  }
+  /* 关键几处也自带一份：命不中 820 那段时仍然正常 */
+  html.indesk-mobile .webrtc-wrap .drag .info .debug-area,
+  html.indesk-mobile .webrtc-wrap .drag .info .debug-area[data-v-178b9ee0] {
+    width: 24px !important;
+    height: 24px !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .diag-pre,
+  html.indesk-mobile .webrtc-wrap .drag .info .diag-pre[data-v-178b9ee0] {
+    max-height: 12vh !important;
+    font-size: 11px !important;
+    opacity: .72 !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .debug-info,
+  html.indesk-mobile .webrtc-wrap .drag .info .debug-info[data-v-178b9ee0] {
+    position: static !important;
+    padding-right: 0 !important;
+  }
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-close,
+  html.indesk-mobile .webrtc-wrap .drag .info .link-config .lc-close[data-v-178b9ee0] {
+    padding: 9px 26px !important;
+    font-size: 14px !important;
+    border-radius: 8px !important;
+  }
+}
+
+/* ==========================================================================
+   6) 新增：整屏连接动画（替换 原来的小转圈 / 空 video 黑框）
+      #indesk-conn 由 ui-patch.js 创建，出帧后自动淡出移除
+   ========================================================================== */
+#indesk-conn {
+  position: fixed !important;
+  top: 0 !important; right: 0 !important; bottom: 0 !important; left: 0 !important;
+  /* [20260928.3] 2147483000 → 2147483002，修「连接动画旁边还露着数据栏」。
+     根因（实测口径）：数据栏 `.idsb` 的 z-index 也是 **2147483000**
+     （utils/remoteStatusBar.ts 的 `.idsb{position:fixed;z-index:2147483000}`），
+     而 `.idsb` 与本元素都直接挂在 `<body>` 上（remoteStatusBar.ts 的 appendChild(el)
+     / 本文件 build() 的 appendChild(wrap)）⇒ **同一个根层叠上下文、同一个层级**，
+     z-index 打平后只能靠 DOM 顺序定胜负 ⇒ 后建的那个赢。
+     电脑端 `.idsb` 不隐藏（前端里 `hidden: isWebEnv`，电脑端 isWebEnv=false），
+     全屏时本文件还会给它挂 `data-o="v"`（竖列）⇒ 于是"连接动画的百分比旁边
+     一直有那条竖版数据栏"。提到 2147483002 后，无条件压过 `.idsb`(…3000)
+     与本文件里两处 …3001 的元素，不再看 DOM 顺序。 */
+  z-index: 2147483002 !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3.4vmin;
+  padding: 5vmin;
+  box-sizing: border-box;
+  background: radial-gradient(circle at 50% 44%, #1a2740 0%, #0d1017 58%, #07090d 100%);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  opacity: 1;
+  transition: opacity .38s ease;
+  -webkit-user-select: none;
+  user-select: none;
+}
+#indesk-conn.ic-hide { opacity: 0; pointer-events: none; }
+
+#indesk-conn .ic-ring {
+  position: relative;
+  width: 22vmin; height: 22vmin;
+  min-width: 88px; min-height: 88px;
+  max-width: 172px; max-height: 172px;
+}
+#indesk-conn .ic-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); display: block; }
+#indesk-conn .ic-ring circle {
+  fill: none;
+  stroke-width: 7;
+}
+#indesk-conn .ic-bg { stroke: rgba(255, 255, 255, .10); }
+#indesk-conn .ic-fg {
+  stroke: #5b8def;
+  stroke-linecap: round;
+  stroke-dasharray: 283;
+  stroke-dashoffset: 283;
+  transition: stroke-dashoffset .28s ease;
+}
+#indesk-conn .ic-num {
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #eaf1ff;
+  font-size: 5.2vmin;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+#indesk-conn .ic-num i { font-size: 2.4vmin; font-style: normal; opacity: .65; margin-left: .4vmin; }
+
+#indesk-conn .ic-phrase {
+  color: #aab3c5;
+  font-size: clamp(13px, 2.6vmin, 18px);
+  letter-spacing: .04em;
+  text-align: center;
+}
+#indesk-conn .ic-bar {
+  width: min(46vmin, 320px);
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .10);
+  overflow: hidden;
+}
+#indesk-conn .ic-bar i {
+  display: block; height: 100%; width: 0;
+  background: linear-gradient(90deg, #3d6fd8, #6ea8ff);
+  transition: width .28s ease;
+}
+
+/* ==========================================================================
+   7) 隐藏原有的老动画，避免与新动画重影（.18 的老动画只在手机端渲染，这里双保险）
+   ========================================================================== */
+.conn-loading,
+.conn-loading[data-v-178b9ee0] {
+  display: none !important;
+}
+
+/* ==========================================================================
+   [20260928.3] 连接动画期间：整屏独占 —— 页面上除动画外一律不许出现
+     用户 2026-09-28 明确要求（三端一致）：
+       「链接动画不能用其他乱七八糟的在同一页面展示」
+     类名 `.indesk-connecting` 由 ui-patch.js 在 show() 里挂上、hide() 里摘掉，
+     与 `#indesk-conn` 的生死完全同步 ⇒ 动画一消失立刻复原，不会有后遗症。
+
+     ⚠️ #indesk-recovery-overlay 只改 visibility，**绝不写 display** ——
+        那是定版控制显隐的内联开关（display:none/block），覆盖了会"常显不消失"，
+        见本文件第 8 段的注释。
+   ========================================================================== */
+/* [20260928.4] 这里原用 display:none —— 会把工具栏/数据栏占的**版面**一起抽走，
+   连接动画期间画面容器尺寸随之改变；而画面容器的矩形正是鼠标落点归一化的基准之一，
+   任何"连接过程中版面变了"都可能让落点整体偏（用户报「点啥都不管用」）。
+   改用 visibility:hidden：**看得见的效果一样（都不显示），但不改变版面**。 */
+html.indesk-connecting .idsb,
+html.indesk-connecting .pc-databar,
+html.indesk-connecting .pc-databar-fold,
+html.indesk-connecting .pc-toolbar,
+html.indesk-connecting .pc-keyhint,
+html.indesk-connecting .pc-filelist,
+html.indesk-connecting .pc-textchat,
+html.indesk-connecting .m-fab,
+html.indesk-connecting .m-touchpad,
+html.indesk-connecting #indesk-toast {
+  visibility: hidden !important;
+}
+html.indesk-connecting #indesk-recovery-overlay {
+  visibility: hidden !important;
+}
+
+/* ==========================================================================
+   8) 【v6 新增】画面恢复浮层去黑幕
+      定版 #indesk-recovery-overlay 的内联样式是
+        position:fixed; inset:0; background:rgba(13,16,23,0.96); z-index:2147483647;
+        display:none; padding:12vh 5vw 4vh; pointer-events:none
+      里面两个子 div：① 22px 居中大字「画面恢复中…」 ② 11px 诊断长文。
+      弱网时（帧间隔 >3s）它就盖上来 → 用户看到"整屏黑 + 恢复中"，像断线。
+      ⇒ 这里只改**外观**：遮罩压到极轻、标题挪到底部缩成一行小字、
+        诊断压到 9px 半透明（保留取证能力），**画面最后一帧始终可见**。
+      ⚠️ 绝对不要写 #indesk-recovery-overlay 的 display —— 那是定版控制显隐的
+         内联开关（display:none/block），覆盖了它会"常显不消失"。
+   ========================================================================== */
+#indesk-recovery-overlay {
+  background: rgba(9, 12, 18, .34) !important;
+  padding: 0 !important;
+}
+/* ① 标题「画面恢复中…」：从"整屏居中 22px 大字" → "底部一行小字" */
+#indesk-recovery-overlay > div:first-child {
+  position: fixed !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: auto !important;
+  bottom: calc(26px + env(safe-area-inset-bottom, 0px)) !important;
+  padding: 0 18px !important;
+  margin: 0 !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  letter-spacing: .3px !important;
+  text-align: center !important;
+  color: #e9ecf3 !important;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, .85) !important;
+}
+/* ② 诊断文本：压小、半透明、限高（保留取证，但不抢画面） */
+#indesk-recovery-overlay > div:last-child {
+  position: fixed !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: auto !important;
+  bottom: calc(4px + env(safe-area-inset-bottom, 0px)) !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 18px !important;
+  font-size: 9px !important;
+  line-height: 1.45 !important;
+  text-align: center !important;
+  color: #8fa0b8 !important;
+  opacity: .5 !important;
+  max-height: 30px !important;
+  overflow: hidden !important;
+}
+
+/* ==========================================================================
+   9) 【v6 新增】弱网降档提示 toast（由 ui-patch.js 创建，6.5s 后自动消失）
+   ========================================================================== */
+#indesk-toast {
+  position: fixed !important;
+  left: 50% !important;
+  top: calc(14px + env(safe-area-inset-top, 0px)) !important;
+  transform: translate(-50%, -12px) !important;
+  max-width: min(560px, calc(100vw - 32px)) !important;
+  box-sizing: border-box !important;
+  padding: 9px 16px !important;
+  border-radius: 10px !important;
+  background: rgba(17, 19, 26, .92) !important;
+  border: 1px solid rgba(255, 255, 255, .14) !important;
+  color: #e9ecf3 !important;
+  font: 500 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif !important;
+  text-align: center !important;
+  z-index: 2147483646 !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  transition: opacity .3s ease, transform .3s ease !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45) !important;
+}
+#indesk-toast.indesk-toast-in {
+  opacity: 1 !important;
+  transform: translate(-50%, 0) !important;
+}
+
+
+/* ==========================================================================
+   10. 【v11 重做】「退出登录」入口 —— 从底部导航栏挪进「账号信息」弹窗
+   --------------------------------------------------------------------------
+   用户反馈："你的退出账号为什么挤在底部导航栏的右上角？很难看。
+               你把它放到账号信息里啊，点开账号信息，里面加上退出登录不行吗？"
+
+   真因（v8 的副作用）：
+     定版 .sidebar .list 里本来只有 5 项（远程控制 / 设备列表 / 屏幕墙(.m-hide) /
+     高级设置 / {{token?'账号信息':'账号登录'}} —— 第 5 项就是账号信息入口）。
+     手机端 ≤820px 时 .sidebar 被改造成底部导航栏、.list 变 flex 横排且
+     **每个 .item 都 flex:1 均分**；v8 往 .list 末尾 append 了一个
+     .item.indesk-logout ⇒ 它独占最右一格、又是 12px 高饱和红字
+     ⇒ 视觉上"吊在导航栏右上角的小红块"，非常突兀。
+
+   v11 修法：
+     · **撤回**往 .sidebar（.list / .side-foot）注入的任何节点 —— 底栏/侧栏
+       恢复定版原样，一个残留字节都没有；
+     · 把按钮注入「账号信息」弹窗 .acc-body 的**底部**（.ink-acc-foot），
+       即用户说的"点开账号信息，里面加上退出登录"。
+       该弹窗路径：.acc-overlay > .acc-mask + .acc-card > .acc-top + .acc-body
+       （.acc-body 定版 padding 14px 18px 18px，内部只有 .row/.hr/.bind-tip/.bind-row，
+         没有 footer ⇒ 底部是干净的，接一块 .ink-acc-foot 不会打架）
+     · 手机端入口无需另造：底栏第 5 项在已登录时显示"账号信息"，点它即弹此窗。
+
+   配色全部取自定版（不自行选色）：
+     · 文字 #f7564d = 定版 .item.logout 的悬停红
+     · 描边 #eef0f4 = 定版 .acc-card 分隔线 / .acc-top 下边线色
+     · 按下底 rgba(247,86,77,.12) = 定版 .item.logout 悬停底色
+   ========================================================================== */
+.acc-body .ink-acc-foot {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #eef0f4;
+}
+.acc-body .ink-acc-logout {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 38px;
+  padding: 0;
+  border: 1px solid #eef0f4;
+  border-radius: 9px;
+  background: #fff;
+  color: #f7564d;
+  font-family: inherit;
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 36px;
+  text-align: center;
+  cursor: pointer;
+
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.acc-body .ink-acc-logout:active {
+  border-color: #f7564d;
+  background: rgba(247, 86, 77, .12);
+}
+/* 二次确认态（不依赖 window.confirm —— Android WebView 没实现 onJsConfirm 时
+   confirm() 会直接返回 false，按钮就"点了没反应"。见 ui-patch.js 说明） */
+.acc-body .ink-acc-logout.ink-acc-danger {
+  border-color: #f7564d;
+  background: rgba(247, 86, 77, .12);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   7. 【v9 新增】手机端：隐藏面板最顶端的诊断长文（.diag-pre）
+   --------------------------------------------------------------------------
+   用户反馈："图标按钮，这个菜单顶部也是有一堆文字"。
+   取证（无头实测：Android UA 伪装 + 390 级视口，由补丁 JS 自行判定 mobile）：
+     .info 内的 DOM 顺序 = .debug-area / **.diag-pre** / .link-config(.ink-mbar …)
+     .diag-pre 实测 rect y=243 而面板 top=233 ⇒ 位于面板**最顶端**（相对 10px）、
+     宽度满屏（456/456）、高度随内容增长；真机上承载 ICE/候选/码率等长诊断文本
+     ⇒ 就是"顶部那一堆文字"。
+   v6 曾把它压到 max-height:10vh + font-size:11px 但**仍然显示**（当时按
+   "手机唯一取证出口"考虑）；用户明确不要 ⇒ v9 直接隐藏。
+   需要诊断时走电脑端（电脑端 .18 本身即 display:none，不受影响）。
+   ⚠️ 只作用于手机端（html.indesk-mobile 且 ≤820px）。
+   ========================================================================== */
+@media (max-width: 820px) {
+  html.indesk-mobile .webrtc-wrap .drag .info .diag-pre,
+  html.indesk-mobile .webrtc-wrap .drag .info .diag-pre[data-v-178b9ee0] {
+    display: none !important;
+  }
+}
+
+/* ==========================================================================
+   8. 【v9 新增 / v10 订正底色】根元素不透明底色
+   --------------------------------------------------------------------------
+   用户反馈："手机端底部导航点一个按钮，界面就出现一次 LOGO 白底图，
+             不应该是直接切换过去吗，为什么还要过渡界面？"
+
+   (a) 网页层先自证清白（每条可复核，见头部 H 段）：
+       依次点底栏 4 项 → hash 走 #/remote → #/deviceManage → #/setting → #/login，
+       全程 .sidebar 在、.logo-mark 不出现、performance.timeOrigin 恒定、
+       pagehide/beforeunload 计数 0 ⇒ **纯 hash 路由，没有整页重载**。
+       computedStyle 另测得 body 与 html 均为 rgba(0,0,0,0) ⇒ 内容区无自己的底色。
+
+   (b) 底色为什么是 #f7fafc（v10 订正，v9 的 #0f172a 是误判）：
+       · #0f172a 在定版 index-Dk_s6zEn.css 里只作**文字色 / 遮罩 / 阴影**
+         （color:#0f172a、background:#0f172a73、#0f172a40）—— **不是背景色**；
+       · 手机壳真正垫在 WebView 底下的是 **#F7FAFC**，三处一致：
+           drawable/splash_background.xml → <solid android:color="#F7FAFC"/>
+           layout/activity_main.xml 根 FrameLayout → android:background="#F7FAFC"
+           layout/activity_main.xml loading_panel  → android:background="#F7FAFC"
+         且 themes.xml 的 android:windowBackground = @drawable/splash_background；
+       · 根 FrameLayout **不透明** ⇒ windowBackground 上的图标本来就被它盖住，
+         网页层铺什么色都不会"透出图标"；
+       · ⇒ 铺 #f7fafc 与现状**零色差**（浅色页/深色远控页都不引入新颜色），
+         只保证"内容区永不透明"；铺 #0f172a 反而会在浅色页上造出一次深色闪。
+
+   (c) ⚠️ 这段**治不了用户的症状**：真凶是壳里的原生 loading_panel
+       （MainActivity.onPageStarted → setStatus → loadingPanel.setVisibility(VISIBLE)，
+        #F7FAFC + 92dp 图标 + 进度条，onPageFinished 250ms 后才 GONE）。
+       要彻底消掉必须在 APK 层加"仅冷启动首屏才显示"的闸门，贴片层无解。
+   ========================================================================== */
+html, body {
+  background-color: #f7fafc !important;
+}
+
+/* ==========================================================================
+   11. 【v11 新增】手机端：设备列表页 + 高级设置页 —— 卡片化重做
+   --------------------------------------------------------------------------
+   用户反馈（原文）：
+     ·"设备列表那个页面很垃圾，你去给我丰富一下，最起码的设备状态、
+       最后一次连接时间，等等你看这丰富，页面的设计都要搞"
+     ·"高级设置页面也是一样，现在太简陋，有的拐到第二行，排版很差很差，
+       把这个页面也需要从新设计优化！"
+
+   线上产物事实（见文件头 J / K 段，均已对 dist 实际生效的 CSS/模板核对）：
+     · #/deviceManage：.setting-wrap(height:100vh) > .nav(50px)
+       + .container(overflow:scroll; padding:0 40px; height:calc(100vh - 50px))
+       > .label("最近连接",16px) + .link-device-list(max-height:200px; overflow:scroll;
+       border:1px solid rgba(153,153,153,.2); radius:2px; background:#fff)
+       > .link-device-item(display:flex; height:40px; padding:0 15px)
+       > .left{裸 UUID, font-size:16px} + .right > .del(15px 细线叉)
+     · #/setting：同一套骨架，里面 .item{display:flex; margin-bottom:20px}
+       > .label{width:100px; text-align:right; margin-right:20px; 15px}
+       + .value{flex:1; 14px; color:#666}，块间 .hr{margin:20px 0; height:1px; bg #ebedf1}
+       "下载客户端" 的 .client-btn{height:30px} > .name{width:120px} + .ext{width:40px}
+
+   修法（全部带 html.indesk-mobile + @media(max-width:820px)，另两端零影响）：
+     · 骨架：.nav 占位 50px→10px（手机端没有 .system-bar，这层是纯空白）；
+       .container 内距 40px→12px；高度交还给外层 .view 滚动
+       （原来 .container 自己 height:calc(100vh - 50px) + overflow:scroll，
+         在手机端会和 .view 的 padding-bottom:56px 打架，末块被底栏压住）。
+     · 页标题（"最近连接"）：15px/600/#0f172a（= 定版 remote 页 .m-sec）。
+     · 设备卡：白底 radius 14 + shadow。
+       .left（裸 UUID 16px）**整块隐藏** —— 信息由 ui-patch.js 注入的 .ink-dev-info
+       承载（设备名/徽章/设备码/IP/最后连接），避免"UUID 与设备码"重复出现。
+       隐藏 .left 而不是删掉它：定版字段仍在 DOM 里，Vue 全程无感。
+     · 设置块：.item 变白底卡（display:block）、.label 变卡片标题（去 100px 宽、
+       改左对齐、留图标位）、.value 撑满整宽、块间 .hr 横线隐藏（靠 10px 卡间距分隔）。
+     · "下载客户端"按钮组：定版 160px 定宽两个 ⇒ 390 屏必折行，改成两列自适应。
+     · 空态 / 统计条：定版 #94a3b8 居中空态 + 12px 统计小字。
+   ========================================================================== */
+@media (max-width: 820px) {
+  /* ---- 11.0 两个页面共用的骨架 ---- */
+  html.indesk-mobile .setting-wrap .nav {
+    /* 定版 50px，是给电脑端固定标题栏留的；手机端没有 .system-bar
+       （useCustomBar 依赖 ipcRenderer），这 50px 就是纯空白 ⇒ 压到 10px */
+    height: 10px !important;
+  }
+  html.indesk-mobile .setting-wrap .container {
+    overflow: visible !important;
+    box-sizing: border-box !important;
+    padding: 0 12px 24px !important;   /* 定版 0 40px：窄屏左右各吃掉 40px */
+    /* 高度交还给外层 .view（overflow-y:auto; padding-bottom:56px），
+       否则本层 height:calc(100vh - 50px) 会在底栏下方多留一屏 */
+    height: auto !important;
+    min-height: calc(100dvh - 120px) !important;
+  }
+  /* 设备列表页的独立页标题（"最近连接"） */
+  html.indesk-mobile .setting-wrap .container > .label {
+    margin: 12px 0 10px !important;
+    width: auto !important;
+    color: #0f172a !important;          /* 定版 .m-sec */
+    text-align: left !important;
+    font-weight: 600 !important;
+    font-size: 15px !important;
+  }
+
+  /* ---- 11.1 设备列表页 ---- */
+  html.indesk-mobile .ink-dev-bar {
+    margin: -2px 0 10px !important;
+    color: #9298a3 !important;          /* 定版 .ld-sub */
+    font-size: 12px !important;
+  }
+  html.indesk-mobile .ink-dev-bar b {
+    margin: 0 2px !important;
+    color: #5b8def !important;          /* 定版主色 */
+    font-weight: 600 !important;
+  }
+  html.indesk-mobile .link-device-list {
+    /* 定版：max-height:200px + overflow:scroll + 1px 灰框 + 直角 ⇒ 改成卡片流 */
+    overflow: visible !important;
+    max-height: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+  }
+  html.indesk-mobile .link-device-item {
+    margin-bottom: 10px !important;
+    padding: 12px 14px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    border-radius: 14px !important;
+    background: #fff !important;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, .06) !important;
+  }
+  html.indesk-mobile .link-device-item:last-child {
+    margin-bottom: 0 !important;
+  }
+  html.indesk-mobile .link-device-item:active {
+    background: #f8fafc !important;
+  }
+  /* 定版那行裸 UUID（.left，16px）：整块隐藏，信息改由 .ink-dev-info 承载 */
+  html.indesk-mobile .link-device-item > .left {
+    display: none !important;
+  }
+  html.indesk-mobile .ink-dev-info {
+    overflow: hidden;
+    flex: 1;
+    min-width: 0;
+  }
+  html.indesk-mobile .ink-dev-top {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+  html.indesk-mobile .ink-dev-name {
+    overflow: hidden;
+    color: #333 !important;             /* 定版 .ld-name */
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    white-space: nowrap !important;
+    text-overflow: ellipsis !important;
+  }
+  html.indesk-mobile .ink-dev-badge {
+    margin-left: 8px !important;
+    padding: 0 6px !important;
+    height: 16px !important;
+    border-radius: 8px !important;
+    font-size: 11px !important;
+    line-height: 16px !important;
+    flex: 0 0 auto !important;
+    background: #f0f1f4 !important;     /* 定版 .ld-badge.unknown */
+    color: #9298a3 !important;
+  }
+  html.indesk-mobile .ink-dev-badge.ink-on {
+    background: #e7f7ea !important;     /* 定版 .ld-badge.online */
+    color: #21a34b !important;
+  }
+  html.indesk-mobile .ink-dev-badge.ink-off {
+    background: #f1f5f9 !important;     /* 定版 .badge.offline */
+    color: #94a3b8 !important;
+  }
+  html.indesk-mobile .ink-dev-sub {
+    /* 定版 .ld-sub：padding-top 2px / #9298a3 / 12px */
+    padding-top: 2px !important;
+    color: #9298a3 !important;
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+  }
+  html.indesk-mobile .ink-dev-code {
+    color: #5b8def !important;          /* 定版 .ld-code */
+    font-weight: 500 !important;
+    letter-spacing: .3px !important;
+  }
+  html.indesk-mobile .ink-dev-sep {
+    padding: 0 6px !important;
+    color: #cbd3de !important;
+  }
+  html.indesk-mobile .ink-dev-last {
+    display: flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    color: #9298a3 !important;
+    font-size: 12px !important;
+  }
+  html.indesk-mobile .ink-dev-last .ink-dev-clock {
+    width: 12px !important;
+    height: 12px !important;
+    flex: 0 0 auto !important;
+    color: #b9c2d0 !important;
+  }
+  /* 定版删除叉：视觉 15px 不变，但把触点撑到 36px 高（手指够得着） */
+  html.indesk-mobile .link-device-item .right .del {
+    box-sizing: content-box !important;
+    padding: 10px 2px 10px 12px !important;
+  }
+  /* 空态（定版是无类名的裸 div，由 ui-patch.js 打标） */
+  html.indesk-mobile .ink-dev-empty {
+    padding: 30px 0 !important;
+    border-radius: 14px !important;
+    background: #fff !important;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, .06) !important;
+    color: #94a3b8 !important;          /* 定版 .m-empty */
+    font-size: 13px !important;
+    text-align: center !important;
+  }
+
+  /* ---- 11.2 高级设置页 ---- */
+  html.indesk-mobile .setting-wrap .container > .item {
+    display: block !important;          /* 定版是 flex（100px 窄列 label + value） */
+    margin-bottom: 10px !important;
+    padding: 14px !important;
+    border-radius: 14px !important;
+    background: #fff !important;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, .06) !important;
+  }
+  html.indesk-mobile .setting-wrap .container > .item > .label {
+    /* 定版：width:100px + text-align:right + margin-right:20px + 15px */
+    display: flex !important;
+    align-items: center !important;
+    gap: 7px !important;
+    margin: 0 0 10px !important;
+    width: auto !important;
+    color: #0f172a !important;
+    text-align: left !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+  }
+  html.indesk-mobile .setting-wrap .container > .item > .label .ink-set-ic {
+    width: 16px !important;
+    height: 16px !important;
+    flex: 0 0 16px !important;
+    color: #5b8def !important;
+  }
+  html.indesk-mobile .setting-wrap .container > .item > .value {
+    width: auto !important;
+    color: #666 !important;
+    font-size: 13px !important;
+    line-height: 1.75 !important;
+    /* 长地址（wss/axios/coturn）允许任意位置断，绝不顶出卡片 */
+    word-break: break-all !important;
+  }
+  html.indesk-mobile .setting-wrap .container > .item > .value .v-item {
+    margin-bottom: 6px !important;
+  }
+  html.indesk-mobile .setting-wrap .container > .item > .value .v-item:last-child {
+    margin-bottom: 0 !important;
+  }
+  /* 卡片之间靠 10px 间距分隔，定版那条 20px 的 .hr 横线在手机上多余 */
+  html.indesk-mobile .setting-wrap .container > .hr {
+    display: none !important;
+  }
+  /* "下载客户端"：定版 .client-btn > .name(120px) + .ext(40px) ⇒ 单颗 160px，
+     两颗 + 10px 间距 = 330px > 可用 310px ⇒ 必然折行。改成两列自适应。 */
+  html.indesk-mobile .setting-wrap .container > .item .client-list {
+    gap: 8px !important;
+  }
+  html.indesk-mobile .setting-wrap .container > .item .client-btn {
+    margin: 0 !important;
+    flex: 1 1 calc(50% - 4px) !important;
+    min-width: 0 !important;
+  }
+  html.indesk-mobile .setting-wrap .container > .item .client-btn .name {
+    overflow: hidden !important;
+    padding: 0 6px !important;
+    width: auto !important;
+    flex: 1 !important;
+    white-space: nowrap !important;
+    text-overflow: ellipsis !important;
+  }
+  /* 关于 InDesk 的"当前版本 + 检查更新"是同一行里的两个 span，
+     窄屏下按钮会贴到版本号上 ⇒ 换行显示 */
+  html.indesk-mobile .setting-wrap .container > .item > .value .v-item.one .btn {
+    margin: 6px 0 0 !important;
+  }
+}
+

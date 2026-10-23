@@ -1,0 +1,16 @@
+# InDesk —— 构建期路径脱敏（品牌切割）
+#
+# 原因：rustc 会把源文件的**绝对路径**写进 panic 定位信息（core::panic::Location）
+# 与调试段，release 二进制里因此会残留开发机的目录名，例如：
+#     G:\billd-desk\web\src-tauri\src\ipc.rs
+# 其中 "billd-desk" 是上游原作者的项目名，属于必须清除的品牌痕迹。
+#
+# 处理：用 --remap-path-prefix 在编译期把仓库根路径替换为中性字符串 "indesk"，
+# 二进制里就只会有 indesk\web\src-tauri\src\ipc.rs 这类中性路径。
+#
+# 注意：
+#  1. 修改 rustflags 会让 cargo 指纹失效，触发**一次**全量重编译（正常现象，只此一次）；
+#  2. 若日后把仓库目录改名/搬家，本规则的匹配前缀也要同步改（改错不会报错，只是脱敏失效）；
+#  3. 单引号是 TOML 字面量字符串，反斜杠无需转义。
+[build]
+rustflags = ['--remap-path-prefix=G:\InDesk=indesk']

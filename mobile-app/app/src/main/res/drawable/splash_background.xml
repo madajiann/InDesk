@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 启动画面：浅色底 + 居中 InDesk 图标，冷启动瞬间即显示，直到布局渲染完成 -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#F7FAFC" />
+        </shape>
+    </item>
+    <item
+        android:width="112dp"
+        android:height="112dp"
+        android:drawable="@drawable/splash_logo"
+        android:gravity="center" />
+</layer-list>

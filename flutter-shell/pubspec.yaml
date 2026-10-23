@@ -1,0 +1,32 @@
+name: indesk
+description: InDesk Flutter 壳 —— 对接 indesk-core（Rust）无头桥
+publish_to: "none"
+version: 2.3.49+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # 窗口控制（无框窗口/托盘态/置顶）
+  window_manager: ^0.4.3
+  # 多子窗口（远程控制工具栏等，对齐 Electron 的 createWindow）
+  desktop_multi_window: ^0.2.0
+  # M2 远程画面（libwebrtc 原生渲染）
+  flutter_webrtc: ^0.12.4
+  # M2 信令（对齐 web 的 socket.io-client v4）
+  socket_io_client: ^3.1.2
+  # 系统托盘（点 X 隐藏常驻托盘，对齐 ToDesk）
+  system_tray: ^2.0.3
+  # 自更新包完整性校验（SHA-256）；本来就是 flutter_webrtc 的传递依赖，
+  # 这里提成直接依赖只是把版本钉住，不新增下载
+  crypto: ^3.0.3
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand/

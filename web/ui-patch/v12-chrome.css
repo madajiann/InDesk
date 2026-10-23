@@ -1,0 +1,627 @@
+/* ============================================================================
+   InDesk 外观同步贴片  v12-chrome  (2026-10-22)
+   ----------------------------------------------------------------------------
+   背景：用户 2026-10-22 反馈「网页版还是原来的界面，界面也要同步成现在的」。
+        事实核对：线上网页版 20261011.16 是上游 Desk 产物，10-21 那次只换了
+        logo 资源与 CSS 引用，**界面皮肤没动过** —— 主色还是旧的 #5b8def、
+        侧栏是淡蓝底 + 圆形光晕 logo、圆角只有 4px、内容区没有卡片。
+
+   本段只做一件事：把网页版的**外壳**对齐桌面端 2.3.47（Flutter 壳）的视觉，
+   取值全部来自 Flutter 侧真实常量，不自己调色（用户原话：主色不能自己挑）：
+
+     brand        #2F6FED   flutter-shell/lib/ui/main_page.dart:34
+     brand-dark   #1E54C8   同上 664 行（按下态）
+     brand-soft   #F2F7FE   main_page.dart:589（输入框底色）
+     brand-soft2  #E4EDFB   main_page.dart:878（选中胶囊底）
+     ink          #182236   设备代码 / 标题文字
+     line         #DCE7F8   卡片描边
+     ok / warn    #21B573 / #D97706
+     圆角         卡片 12 / 按钮 9 / 胶囊 7（main_page.dart 320/641/583）
+     层级         标题 15px·700 / 正文 13px / 说明 12px
+
+   三条边界（必须守住）：
+     ① 手机端（≤820px）**不套桌面外壳**：.sidebar 在手机是底部导航栏，
+        注入节点会挤掉导航格（v11 踩过这个坑，见 v11-base.css 第 99 行）。
+        ⇒ 本段所有外壳规则一律包在 @media (min-width:821px) 里，
+          注入的 .ink-brand 默认 display:none，仅桌面显示。
+     ② 只改外观，**不改任何 display/显隐开关**：定版用它们控制业务显隐。
+     ③ 主色要打赢 Naive UI 的**内联 CSS 变量**（--n-color-checked 等是
+        element inline style）。样式表 !important 优先于内联普通声明，
+        所以必须 !important，否则勾选框/单选还是旧蓝。
+
+   ⚠️ 血泪教训（2026-10-22 第一次上线时踩到）：
+      **绝对不要在补丁选择器里写 [data-v-xxxxxxxx] 作用域哈希。**
+      Vue 编译期给每个组件生成 data-v-<hash>，而**不同构建的同一组件哈希不同**：
+        线上 20261011.16 的 remote 页 = data-v-ce53c40e
+        本地 dist 20261019 的 remote 页 = data-v-1b8e5c6e
+      ⇒ 补丁按本地哈希写完，本地预览完美、**线上一条都不生效**，
+        而且因为同一份 CSS 里侧栏（哈希恰好一致）生效了，肉眼极难发现。
+      ⇒ 本段一律只用**类名**选择器，靠 !important 打赢定版规则。
+   ========================================================================== */
+
+:root {
+  --ink-brand: #2f6fed;
+  --ink-brand-dark: #1e54c8;
+  --ink-soft: #f2f7fe;
+  --ink-soft2: #e4edfb;
+  --ink-ink: #182236;
+  --ink-line: #dce7f8;
+  --ink-line2: #e9edf5;
+  --ink-sub: #7a879c;
+  --ink-page: #f5f7fb;
+}
+
+/* ==========================================================================
+   12.1 主色统一：打赢 Naive UI 的内联变量
+   ========================================================================== */
+html body .n-config-provider,
+html body .n-config-provider * {
+  --n-color-checked: var(--ink-brand) !important;
+  --n-border-checked: 1px solid var(--ink-brand) !important;
+  --n-border-focus: 1px solid var(--ink-brand) !important;
+  --n-box-shadow-focus: 0 0 0 2px rgba(47, 111, 237, 0.24) !important;
+  --n-color-pressed: var(--ink-brand) !important;
+  --n-text-color-checked: var(--ink-brand) !important;
+}
+
+html body .n-button--primary-type:not(.n-button--disabled) {
+  --n-color: var(--ink-brand) !important;
+  --n-color-hover: var(--ink-brand-dark) !important;
+  --n-color-pressed: var(--ink-brand-dark) !important;
+  --n-color-focus: var(--ink-brand) !important;
+  --n-border: 1px solid var(--ink-brand) !important;
+  --n-border-hover: 1px solid var(--ink-brand-dark) !important;
+  --n-border-pressed: 1px solid var(--ink-brand-dark) !important;
+  --n-border-focus: 1px solid var(--ink-brand) !important;
+  background-color: var(--ink-brand) !important;
+}
+
+/* 单选按钮组（连接画质）选中态：定版 #5b8def → 品牌蓝 */
+html body .n-radio-button.n-radio-button--checked {
+  --n-button-color-active: var(--ink-brand-soft2) !important;
+  --n-button-text-color-active: var(--ink-brand) !important;
+  --n-button-border-color-active: var(--ink-brand) !important;
+  --n-button-box-shadow-focus: 0 0 0 2px rgba(47, 111, 237, 0.24) !important;
+}
+
+/* ==========================================================================
+   12.2 侧栏 + 主区骨架（桌面）
+   ========================================================================== */
+@media (min-width: 821px) {
+  html body .layout .sidebar {
+    width: 210px !important;
+    padding: 14px 12px 10px !important;
+    background: #fff !important;
+    border-right: 1px solid var(--ink-line2) !important;
+    box-shadow: 0 1px 0 rgba(24, 34, 54, 0.02) !important;
+  }
+
+  html body .layout .view {
+    width: calc(100vw - 210px) !important;
+    background: var(--ink-page) !important;
+  }
+
+  /* 12.3 品牌头：logo 方块 + InDesk 字标 + 版本副标题（= 桌面端左上角） */
+  html body .ink-brand {
+    display: flex !important;
+    align-items: center;
+    gap: 9px;
+    padding: 0 4px 12px;
+  }
+  /* 图标必须是桌面端那一张（flutter-shell/assets/brand/indesk.png，
+     蓝色圆角方块 + 白色显示器/笔记本），由 make_logo.py 生成。
+     旧 logo-20261022a.png 是上游淡蓝双显示器图标 —— 那是"还是原版图标"的根因。 */
+  html body .ink-brand .ink-brand-mark {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: transparent url(./__LOGO__) center/contain no-repeat;
+    box-shadow: none;
+  }
+  /* 字标与版本号同一行（桌面端即如此：InDesk v2.3.47 · 核心 v1.4.48） */
+  html body .ink-brand .ink-brand-tx {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  html body .ink-brand .ink-brand-tx b {
+    color: var(--ink-ink);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+  html body .ink-brand .ink-brand-tx span {
+    color: #93a0b4;
+    font-size: 9.5px;
+    letter-spacing: 0.1px;
+  }
+
+  /* 12.4 头像 / 昵称 / 版本胶囊：对齐桌面端的「居中大头像 + 昵称 + 两枚浅胶囊」 */
+  html body .layout .sidebar .user {
+    width: 44px !important;
+    height: 44px !important;
+    margin: 4px auto 0 !important;
+    border: 0 !important;
+    border-radius: 50% !important;
+    background-color: var(--ink-soft2) !important;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232F6FED' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='12' cy='8' r='3.4'/%3E%3Cpath d='M4.8 20c0-3.8 3.2-6.2 7.2-6.2s7.2 2.4 7.2 6.2'/%3E%3C/svg%3E") !important;
+    background-size: 22px 22px !important;
+    background-position: center !important;
+    background-repeat: no-repeat !important;
+    box-shadow: none !important;
+  }
+  /* 已登录时由 ui-patch.js 写入 data-av（昵称首字），头像换成品牌蓝实底 + 白字 */
+  html body .layout .sidebar .user[data-av] {
+    background-color: var(--ink-brand) !important;
+    background-image: none !important;
+  }
+  html body .layout .sidebar .user[data-av]::after {
+    content: attr(data-av);
+    display: block;
+    width: 100%;
+    height: 100%;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 44px;
+    text-align: center;
+  }
+  html body .layout .sidebar .user .dot {
+    right: 0;
+    bottom: 2px;
+    width: 10px;
+    height: 10px;
+    border-color: #fff;
+  }
+  html body .layout .sidebar .username {
+    margin: 9px 0 0 !important;
+    color: #3c4759 !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    text-align: center !important;
+  }
+  html body .layout .sidebar .edition {
+    justify-content: center !important;
+    margin: 7px 0 0 !important;
+  }
+  html body .layout .sidebar .edition .tag {
+    margin: 0 3px !important;
+    padding: 0 8px !important;
+    border-radius: 7px !important;
+    font-size: 10.5px !important;
+    line-height: 18px !important;
+  }
+  html body .layout .sidebar .edition .tag.normal {
+    background: var(--ink-soft2) !important;
+    color: var(--ink-brand) !important;
+  }
+  html body .layout .sidebar .edition .tag.plus {
+    border: 1px solid #e6eaf2 !important;
+    color: #9aa5b8 !important;
+  }
+
+  /* 12.5 导航项：38px 高、8px 圆角、13px 字、选中淡蓝底 */
+  html body .layout .sidebar .list {
+    padding-top: 10px !important;
+  }
+  html body .layout .sidebar .list .item,
+  html body .layout .sidebar .side-foot .item {
+    height: 40px !important;
+    margin-bottom: 3px !important;
+    padding: 0 10px !important;
+    border-radius: 10px !important;
+    color: #5a6478 !important;
+    font-size: 13px !important;
+    line-height: normal !important;
+    gap: 9px !important;
+  }
+  html body .layout .sidebar .list .item .ic,
+  html body .layout .sidebar .side-foot .item .ic {
+    width: 16px !important;
+    height: 16px !important;
+    color: #8b95a7 !important;
+  }
+  html body .layout .sidebar .list .item:hover,
+  html body .layout .sidebar .side-foot .item:hover {
+    background-color: #f4f7fd !important;
+    color: var(--ink-ink) !important;
+  }
+  html body .layout .sidebar .list .item.active,
+  html body .layout .sidebar .side-foot .item.active {
+    background-color: var(--ink-soft2) !important;
+    color: var(--ink-brand) !important;
+    font-weight: 600 !important;
+  }
+  html body .layout .sidebar .list .item.active .ic,
+  html body .layout .sidebar .side-foot .item.active .ic {
+    color: var(--ink-brand) !important;
+  }
+  html body .layout .sidebar .list .item .soon {
+    background: #f0f3f9 !important;
+    color: #9aa5b8 !important;
+    border-radius: 7px !important;
+    font-size: 10px !important;
+    height: 17px !important;
+    line-height: 17px !important;
+  }
+  html body .layout .sidebar .list .group-split {
+    background: var(--ink-line2) !important;
+    margin: 10px 8px !important;
+  }
+  html body .layout .sidebar .side-foot {
+    border-top: 1px solid var(--ink-line2) !important;
+    padding-top: 8px !important;
+  }
+
+  /* ======================================================================
+     12.6 首页内容区卡片化：三段各自成卡（对齐桌面端布局）
+     定版：.container 直接平铺，段与段之间只有虚线/留白，没有卡片边界。
+     ====================================================================== */
+  html body .remote-wrap .container {
+    /* 顶部 52px：让固定的 .web-tip（悬在 10px 处）不压住首张卡片 */
+    padding: 52px 24px 24px !important;
+  }
+  html body .remote-wrap .container .local-device,
+  html body .remote-wrap .container .remote-device,
+  html body .remote-wrap .container .link-config {
+    box-sizing: border-box;
+    margin-bottom: 14px !important;
+    padding: 18px 20px !important;
+    background: #fff !important;
+    border: 1px solid #e8eef9 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 2px rgba(24, 34, 54, 0.04) !important;
+  }
+  html body .remote-wrap .container .local-device {
+    padding-top: 18px !important;
+  }
+  html body .remote-wrap .container .local-device .label {
+    margin-bottom: 12px !important;
+    color: var(--ink-ink) !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+  }
+  html body .remote-wrap .container .local-device .info .info-left .txt,
+  html body .remote-wrap .container .local-device .info .info-right .txt {
+    margin-bottom: 4px !important;
+    color: var(--ink-sub) !important;
+    font-size: 12px !important;
+  }
+  html body .remote-wrap .container .local-device .info .info-left .code-info .code,
+  html body .remote-wrap .container .local-device .info .info-right .code-info .code {
+    color: var(--ink-ink) !important;
+    font-size: 26px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5px !important;
+  }
+
+  /* 无人值守 / 隐私屏 / 结束锁屏 这一行：跟着卡片走，别裸在外面 */
+  html body .remote-wrap .container .unattended-row {
+    margin: 0 0 14px !important;
+    padding: 12px 20px !important;
+    background: #fff !important;
+    border: 1px solid #e8eef9 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 2px rgba(24, 34, 54, 0.04) !important;
+    font-size: 13px !important;
+  }
+  html body .remote-wrap .container .input-diag {
+    color: #9aa5b8 !important;
+    font-size: 11px !important;
+  }
+
+  /* 12.7 远程控制设备：标题层级 + 输入框 + 连接按钮 */
+  html body .remote-wrap .container .remote-device .label {
+    margin-bottom: 12px !important;
+    color: var(--ink-ink) !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+  }
+  html body .remote-wrap .container .remote-device .info .ipt-wrap .ipt-top .ipt {
+    height: 40px !important;
+    border: 1px solid var(--ink-line) !important;
+    border-radius: 9px !important;
+    background: var(--ink-soft) !important;
+    color: var(--ink-ink) !important;
+    font-size: 14px !important;
+  }
+  html body .remote-wrap .container .remote-device .info .ipt-wrap .ipt-top .ipt:focus {
+    border-color: var(--ink-brand) !important;
+    background: #fff !important;
+  }
+  html body .remote-wrap .container .remote-device .info .btn {
+    height: 40px !important;
+    border-radius: 9px !important;
+    background-color: var(--ink-brand) !important;
+    color: #fff !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    line-height: 40px !important;
+    box-shadow: 0 2px 6px rgba(47, 111, 237, 0.24) !important;
+  }
+  html body .remote-wrap .container .remote-device .info .btn:hover {
+    background-color: var(--ink-brand-dark) !important;
+    opacity: 1 !important;
+  }
+  html body .remote-wrap .container .remote-device .info .btn.gray {
+    background-color: #b9cff5 !important;
+    box-shadow: none !important;
+    opacity: 1 !important;
+  }
+  /* 「已准备好连接」这类提示 */
+  html body .remote-wrap .container .remote-device .info .tip {
+    color: #9aa5b8 !important;
+    font-size: 11px !important;
+  }
+
+  /* 12.8 连接画质卡片内部 */
+  html body .remote-wrap .container .link-config .lc-head .lc-title {
+    color: var(--ink-ink) !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+  }
+  html body .remote-wrap .container .link-config .lc-head .lc-hint {
+    color: #9aa5b8 !important;
+    font-size: 11px !important;
+  }
+  html body .remote-wrap .container .link-config .lc-row .lc-label {
+    color: var(--ink-sub) !important;
+    font-size: 12px !important;
+  }
+  /* 胶囊按钮：选中 = 品牌蓝实底（定版是浅蓝描边） */
+  html body .remote-wrap .container .link-config .n-radio-group .n-radio-button {
+    --n-button-text-color: #5a6478 !important;
+    --n-button-border-color: var(--ink-line) !important;
+    --n-button-color: var(--ink-soft) !important;
+    border-radius: 7px !important;
+    height: 28px !important;
+    font-size: 12px !important;
+  }
+  html body .remote-wrap .container .link-config .n-radio-group .n-radio-button.n-radio-button--checked {
+    --n-button-text-color: #fff !important;
+    --n-button-border-color: var(--ink-brand) !important;
+    --n-button-color: var(--ink-brand) !important;
+    background-color: var(--ink-brand) !important;
+    color: #fff !important;
+  }
+  html body .remote-wrap .container .link-config .n-radio-group .n-radio-button.n-radio-button--checked .n-radio__label {
+    color: #fff !important;
+  }
+
+  /* 12.9 顶部「网页版」提示条
+     定版是 position:fixed + left:50% + translateX(-50%)，悬在画面正中顶部。
+     试过改 position:static 让它入流 —— 不行：transform:translateX(-50%)
+     在 static 下依然生效，整条会被拖到画面外一半（实测左半截被裁掉）。
+     所以保持 fixed，只做三件事：压小、去掉重阴影、给容器留出让位空间。 */
+  html body .web-tip {
+    padding: 6px 10px !important;
+    border: 1px solid var(--ink-line) !important;
+    border-radius: 9px !important;
+    box-shadow: 0 2px 8px rgba(24, 34, 54, 0.06) !important;
+    font-size: 12px !important;
+    opacity: 0.96;
+  }
+  html body .web-tip .web-tip-tag {
+    background: var(--ink-brand) !important;
+    border-radius: 6px !important;
+  }
+
+  /* ======================================================================
+     12.10 高级设置页：裸列表 → 卡片列表
+     定版：.item{display:flex} + .label{width:100px;text-align:right}
+     ⇒ 左侧 100px 空白 + 右对齐标签，像一个没做完的表单。
+     桌面端 settings_page.dart 是「一卡一项、标题在上、内容在下」。
+     ====================================================================== */
+  html body .setting-wrap .container {
+    padding: 24px !important;
+    background: var(--ink-page) !important;
+  }
+  html body .setting-wrap .container .item {
+    display: block !important;
+    margin-bottom: 14px !important;
+    padding: 16px 20px !important;
+    background: #fff !important;
+    border: 1px solid #e8eef9 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 2px rgba(24, 34, 54, 0.04) !important;
+  }
+  html body .setting-wrap .container .item .label {
+    width: auto !important;
+    margin: 0 0 8px 0 !important;
+    color: var(--ink-ink) !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    text-align: left !important;
+  }
+  html body .setting-wrap .container .item .value {
+    color: #5a6478 !important;
+    font-size: 13px !important;
+  }
+  html body .setting-wrap .container .item .value .v-item {
+    margin-bottom: 4px !important;
+  }
+}
+
+/* ==========================================================================
+   12.11 手机端（≤820px）：侧栏是底部导航栏，只调选中态与圆角，
+        绝不注入桌面外壳节点
+   ========================================================================== */
+@media (max-width: 820px) {
+  html body .layout .sidebar .list .item.active {
+    color: var(--ink-brand) !important;
+    font-weight: 600 !important;
+  }
+  html body .ink-brand {
+    display: none !important;
+  }
+  html body .remote-wrap .container .link-config .n-radio-group .n-radio-button.n-radio-button--checked {
+    background-color: var(--ink-brand) !important;
+    color: #fff !important;
+  }
+  html body .remote-wrap .container .link-config .n-radio-group .n-radio-button.n-radio-button--checked .n-radio__label {
+    color: #fff !important;
+  }
+}
+
+/* ==========================================================================
+   12.12 全局 logo 换标（2026-10-22 补）
+   --------------------------------------------------------------------------
+   线上定版 CSS 在 **7 处** 硬编码 logo-DzcDCnaP.png（上游旧图标：淡蓝底
+   两台显示器 + 绿色箭头）。它带一年 immutable 缓存，同名换文件老客户端
+   永远看不到 ⇒ 只能换文件名 + 逐处覆盖 background-image。
+
+   本段刻意放在 @media 之外：登录页 hero / 关于页 / 版本弹窗在手机端也要换。
+
+   图片由 make_logo.py 从 flutter-shell/assets/brand/indesk.png 生成，
+   与桌面端侧栏、顶栏、关于页用的是同一张，不另画。
+   ========================================================================== */
+html body .layout .system-bar .bar-brand .logo,
+html body .layout .overlay .tpl-card .oc-body .ma-row .ma-ico,
+html body .webrtc-wrap .drag .logo-btn,
+html body .webrtc-wrap .remote-video .conn-loading .conn-logo,
+html body .hero .logo,
+html body .about-wrap .logo,
+html body .ver-wrap .logo {
+  background-image: url(./__LOGO__) !important;
+  background-position: center center !important;
+  background-size: contain !important;
+  background-repeat: no-repeat !important;
+  background-color: transparent !important;
+}
+
+/* 定版给侧栏头像铺的底图也是旧 logo；12.4 已换成品牌色 + 人形/首字，这里
+   再兜一层，防止某些路由下 12.4 的规则被后来的样式冲掉。 */
+html body .layout .sidebar .user {
+  background-color: var(--ink-soft2) !important;
+}
+
+/* ==========================================================================
+   12.13 更新公告：不再整屏遮挡（2026-10-22 补）
+   --------------------------------------------------------------------------
+   用户反馈：进页面就弹、盖住整屏、写着早就过期的 v20261011.16，看着像"界面没更新"。
+
+   定版逻辑（WebAnnounce/index.vue）：同一版本只弹一次，写在 localStorage
+   `indesk_web_version`；会话中不弹。逻辑没问题，问题在**呈现**：
+   `position:fixed; inset:0` + `.mask` 半透明遮罩 = 一进来啥都看不见。
+
+   改成右下角一张浮卡：
+     · `.mask` 直接不显示（不做全屏变暗）
+     · `.wa-wrap` 保留 fixed 全屏，但 flex 靠右下对齐 + pointer-events:none，
+       卡片本身 pointer-events:auto —— 卡片以外的地方照常可点
+     · 手机端（≤820px）保持原样全屏：小屏上浮卡反而挡内容
+
+   「知道了」仍然走原组件（写 localStorage），行为不变。
+   ========================================================================== */
+@media (min-width: 821px) {
+  html body .wa-wrap {
+    display: flex !important;
+    align-items: flex-end !important;
+    justify-content: flex-end !important;
+    padding: 0 18px 18px 0 !important;
+    pointer-events: none !important;
+  }
+  html body .wa-wrap .mask {
+    display: none !important;
+  }
+  html body .wa-wrap .card {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    transform: none !important;
+    width: 360px !important;
+    max-height: min(68vh, 520px) !important;
+    padding: 18px 18px 16px !important;
+    border: 1px solid var(--ink-line) !important;
+    border-radius: 12px !important;
+    /* 顶部 3px 品牌条用 inset shadow，避免影响盒高 */
+    box-shadow: 0 12px 40px rgba(24, 34, 54, 0.18), inset 0 3px 0 var(--ink-brand) !important;
+    pointer-events: auto !important;
+  }
+  html body .wa-wrap .title {
+    font-size: 15px !important;
+    color: var(--ink-ink) !important;
+  }
+  html body .wa-wrap .ver {
+    font-size: 12.5px !important;
+  }
+  html body .wa-wrap .ver b {
+    color: var(--ink-brand) !important;
+  }
+  html body .wa-wrap .lbl {
+    margin: 12px 0 6px !important;
+  }
+  html body .wa-wrap .line {
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+    color: #48546b !important;
+  }
+  html body .wa-wrap .line:before {
+    background: var(--ink-brand) !important;
+  }
+  html body .wa-wrap .btn {
+    height: 40px !important;
+    margin-top: 14px !important;
+    font-size: 14px !important;
+    line-height: 40px !important;
+    border-radius: 9px !important;
+    background: var(--ink-brand) !important;
+  }
+
+  /* 侧栏底部「更新公告」入口：有未读才显蓝点，不抢导航的视觉 */
+  html body .ink-notice {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    margin-top: 4px;
+    padding: 0 10px;
+    border-radius: 8px;
+    color: #5a6478;
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+  }
+  html body .ink-notice:hover {
+    background: #f2f6fd;
+    color: var(--ink-brand);
+  }
+  html body .ink-notice .ink-notice-dot {
+    display: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ink-brand);
+  }
+  html body .ink-notice.has-dot .ink-notice-dot {
+    display: block;
+  }
+}
+
+/* 手机端（≤820px）：定版卡片靠 left:50% + translateX(-50%) 定位，
+   而本页存在既有的横向溢出（全站内容比屏幕宽），导致卡片被顶到屏幕右侧外。
+   这里改成 flex 居中 + 宽度受 100vw 约束，不再依赖 50% 与 transform。 */
+@media (max-width: 820px) {
+  html body .wa-wrap {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 10px !important;
+  }
+  html body .wa-wrap .card {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    margin: 0 auto !important;
+    width: auto !important;
+    max-width: calc(100vw - 20px) !important;
+    max-height: 76vh !important;
+  }
+}

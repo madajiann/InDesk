@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "InDesk",
+  "version": "1.4.48",
+  "identifier": "com.indesk.app",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico"
+    ],
+    "publisher": "InDesk",
+    "copyright": "Copyright (c) 2026 InDesk",
+    "shortDescription": "InDesk 远程桌面客户端",
+    "longDescription": "InDesk 远程桌面客户端",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+          "installerIcon": "./icons/icon.ico",
+        "languages": ["SimpChinese"],
+        "template": "./nsis-template/installer.nsi"
+      }
+    }
+  }
+}

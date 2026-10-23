@@ -1,0 +1,126 @@
+# ============================================================
+# InDesk 开源仓库 .gitignore
+# 第一原则：任何密钥、证书、签名材料、环境变量文件，永不入库。
+# 这份文件必须在第一次 git init 之前就位，不能事后补。
+# ============================================================
+
+# ---------- 凭据与证书（最高优先级，删掉这行等于把服务器钥匙公开） ----------
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+
+# 服务端密钥：所有真实值只存在于部署机的环境变量里
+server/src/secret/
+secret.ts
+secretTemp.ts
+!secret.example.ts
+
+# 环境变量
+.env
+.env.*
+!.env.example
+*.env.local
+
+# 签名与本地配置
+keystore.properties
+key.properties
+local.properties
+gradle.properties.local
+certs/
+**/certs/
+
+# ---------- 构建产物 ----------
+build/
+**/build/
+dist/
+**/dist/
+target/
+**/target/
+.dart_tool/
+**/.dart_tool/
+.gradle/
+**/.gradle/
+node_modules/
+**/node_modules/
+*.exe
+*.msi
+*.apk
+*.aab
+*.dmg
+*.pkg
+*.zip
+*.7z
+*.rar
+out/
+release-test/
+
+# Flutter / Dart 生成物
+.flutter-plugins
+.flutter-plugins-dependencies
+*.g.dart
+*.freezed.dart
+
+# ---------- 手改备份与临时文件 ----------
+*.bak
+*.bak-*
+*.bak.*
+*.prev
+*.orig
+*.copy
+*~
+*.tmp
+*.temp
+*.swp
+*.swo
+*.log
+*.tsbuildinfo
+tsc-*.log
+
+# ---------- 编辑器与系统 ----------
+.idea/
+.vscode/*
+!.vscode/settings.example.json
+!.vscode/extensions.json
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 本项目的私有数据（绝不入库） ----------
+# 历史归档、备份、回收站，里面可能残留真实凭据
+_archive/
+_trash_*/
+_备份-*/
+_归档-*/
+_takeover_*/
+_cleanup_*/
+_verify/
+_stage_*/
+_ref/
+lab/
+
+# 交接与内部文档
+_handoff_*.md
+_RELEASE_*.md
+_tmp_*
+_vj_*.json
+_version_json_staging.json
+bd_*.json
+bd_*.ts
+bd_env
+bd_envts.ts
+bd_builder.json5
+
+# 上游抓取下来的临时参考（无许可证，只能本地参考，不能发布）
+billd*
+
+# ---------- 构建产物：手机端离线兜底页（线上 web 构建的镜像） ----------
+# 2MB+ 的上游前端编译产物 + 打进包里的站点资源，属生成物。
+# 需要时从自己的 web 构建重新生成，脚本见 README「构建」一节。
+mobile-app/app/src/main/assets/web/

@@ -1,0 +1,24 @@
+[package]
+name = "nvenc"
+version = "0.1.0"
+edition = "2024"
+authors = ["AlsoSylv"]
+description = "Wrapper for the nvidia NVENC API"
+rust-version = "1.85.1"
+readme = "README.md"
+repository = "https://github.com/AlsoSylv/nvenc"
+license = "MIT"
+keywords = ["nvidia", "graphics", "media", "video", "ffi"]
+categories = ["multimedia", "external-ffi-bindings"]
+
+[dependencies]
+libloading = "0.8.9"
+bitfields = "1.0.2"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.61"
+features = [
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+]

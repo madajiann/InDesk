@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.indesk.mobile'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.indesk.mobile"
+        minSdk 24
+        targetSdk 34
+        versionCode 19
+        versionName "1.3.3"
+    }
+
+    // 签名材料不进仓库：把 keystore.properties.example 复制成
+    // ../keystore.properties 并填入你自己的 keystore，否则 release 不签名。
+    // 官方发行版用固定 keystore，保证覆盖安装不掉数据。
+    signingConfigs {
+        if (rootProject.file('../keystore.properties').exists()) {
+            def props = new Properties()
+            rootProject.file('../keystore.properties').withInputStream { props.load(it) }
+            indesk {
+                storeFile rootProject.file(props['storeFile'])
+                storePassword props['storePassword']
+                keyAlias props['keyAlias']
+                keyPassword props['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (signingConfigs.findByName('indesk') != null) {
+                signingConfig signingConfigs.indesk
+            }
+        }
+        debug {
+            if (signingConfigs.findByName('indesk') != null) {
+                signingConfig signingConfigs.indesk
+            }
+        }
+    }
+}
+
+dependencies {
+    // 纯 WebView 壳，无第三方依赖，只要 SDK Platform 即可编译
+}

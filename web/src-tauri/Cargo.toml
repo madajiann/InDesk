@@ -1,0 +1,143 @@
+[package]
+name = "indesk-desktop"
+version = "1.4.48"
+description = "InDesk 远程桌面客户端"
+authors = ["InDesk"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "indesk_desktop_lib"
+# 桌面版只需要 rlib；保留 staticlib/cdylib 会额外产出一个 200MB+ 的 .lib 并拖慢编译
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+# [20260927 依赖解析修复·关键] 与 [dependencies] 里同名的这条**必须同时存在**：
+# resolver v2 下，build-dependencies 组成的 host 单元图 与 普通依赖图 **特性不合并**。
+# 只写在 [dependencies] 里，tauri-build → schemars 用的那份 indexmap 1.9.3 仍然没有 std
+# → schemars 的 `pub type Map<K,V> = indexmap::IndexMap<K,V>` 报 E0107（缺第 3 泛型）。
+# 实测依据：target\release\.fingerprint\indexmap-cc46492a...\lib-indexmap.json 里
+# features= ["serde", "serde-1"]（无 std），而 indexmap/build.rs 只有在 CARGO_FEATURE_STD
+# 存在时才 emit `has_std`（否则退回 autocfg 探测，此环境下探不到）。
+indexmap = { version = "1.9", features = ["std"] }
+
+[dependencies]
+tauri = { version = "2", features = ["devtools", "image-png", "tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# [20261015 Electron 混合壳] core 模式（--core）：无窗口后台运行（不加载 WebView2），
+# axum 在 127.0.0.1 提供两件事：
+#   GET /ws —— IPC 桥（{id,channel,payload} → ipc::dispatch；事件 → {event,payload} 广播）
+#   GET /*  —— 复用 serve_web_update（web UI 热更/内置资源 + /__capture/frame 帧通道）
+# Electron 壳加载 http://127.0.0.1:<port>/index.html，替代 tauri 的 indesk.localhost 协议。
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+# [20261015 core 本地反代] 本地壳（Electron/Flutter）下 web 从 127.0.0.1:<core_port> 加载，
+# web 的 API 与 socket.io 信令按「同域」约定打到 core；core 必须把它们透传到真实服务端
+# （https://desk.yomm.top:8443），否则被控端建不了身份、连不上信令（实测 leveldb 恒空）。
+# HTTP 反代用 reqwest（rustls，禁 default 防 openssl 拖累）；WS 反代用 tokio-tungstenite。
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.23", features = ["rustls-tls-webpki-roots"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# 纯 Rust、零依赖的 JPEG 编码器：壳侧静默取屏把抓到的位图编码成 JPEG 帧。
+# ⚠️ `simd` 特性**必须在依赖里显式打开**：该 crate 的 `default = ["std"]` 不含 `simd`，
+# 不开就是纯标量路径（实测 1280x800 q85 编码 29.28ms/帧，是 1.4.0 的头号瓶颈）。
+# 开了之后 `encoder.rs` 会走 `is_x86_feature_detected!("avx2")` → `AVX2Operations`，
+# 用 AVX2 加速 FDCT 与 BGRA→YCbCr 两个热点。运行期检测，无需 target-cpu / RUSTFLAGS。
+jpeg-encoder = { version = "0.6", features = ["simd"] }
+# [20261021 七轮] CPU 软件 H.264（屏幕内容路径）：NVENC 在本机 1GB 显存 + 95MB 余量下
+# 周期性 200~850ms 停顿（详见 src/soft264.rs 头注释的对照实验），改用 CPU 编码绕开
+# 驱动/显存那条路。`features = ["source"]` 用 vendored OpenH264 源码内联编译，
+# 自带 nasm-rs 提供汇编器，无需外部 SDK/nasm（本机实测 2m14s 构建通过）。
+openh264 = { version = "0.6", features = ["source"] }
+
+# [20260927 依赖解析修复] 编译期依赖链里有两处要 indexmap 1.x 的 crate
+# （tauri 的 schemars 0.8.22 走 `indexmap-1` 特性、serde_with 3.x 的 indexmap_1 特性），
+# 而 indexmap 1.9.3 的 `[features]` **没有 `default = ["std"]`** —— 不显式开 `std` 时
+# `IndexMap<K, V, S>` 中 `S` 没有默认值，schemars 的 `pub type Map<K, V> = indexmap::IndexMap<K, V>`
+# 直接报 E0107（本地实测：Cargo.lock 于 2026-09-27 被重新解析后落到这个组合，
+# 全量重编译必炸）。特性合并是全局的，这里显式打开即修复，且不影响任何运行期行为。
+indexmap = { version = "1.9", features = ["std"] }
+
+[target.'cfg(windows)'.dependencies]
+# WebView2 宿主接口：只用于关掉后台节流（无人值守时窗口可能被隐藏/最小化，
+# 不关节流会导致页面定时器被降频，canvas 取景卡顿）。
+webview2-com = "0.38.2"
+windows-core = "0.61"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    # [20260915] 单实例守卫：CreateMutexW 签名引用 SECURITY_ATTRIBUTES，
+    # 该条目同时被 Threading 与 Security 两个特性门控，缺一不可
+    "Win32_Security",
+    "Win32_System_Power",
+    "Win32_System_SystemInformation",
+    # [1.4.32 修「双击没反应」] main.rs 里"把已有实例的窗口拉到前台"要用进程快照
+    # （CreateToolhelp32Snapshot / Process32FirstW / Process32NextW）。
+    "Win32_System_Diagnostics_ToolHelp",
+    # [20260915] 单实例守卫：CreateMutexW（main.rs）
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_HiDpi",
+    # 静默取屏：GDI 抓屏（BitBlt / StretchBlt / GetDIBits）
+    "Win32_Graphics_Gdi",
+    # [1.4.5 剪贴板同步] 剪贴板读写：OpenClipboard / GetClipboardData /
+    # SetClipboardData / EmptyClipboard / IsClipboardFormatAvailable /
+    # GetClipboardSequenceNumber 全在 DataExchange；GlobalAlloc/GlobalLock 在
+    # Memory；CF_UNICODETEXT（= 13u16，注意各 API 收 u32，必须显式转换）在 Ole。
+    # 三个都缺一不可 —— 少一个的表现是**编译期**报"找不到函数"，
+    # 而 GlobalFree 在 Foundation（已有），不在 Memory（这一点最容易记反）。
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    # [20261022 剪贴板文件] CF_HDROP 的枚举要用 shell32 的 DragQueryFileW，
+    # 它在 Win32_UI_Shell 下；HDROP 也定义在那里（= *mut c_void）。
+    # CF_HDROP 常量本身在 Ole（= 15u16），所以上面 Ole 特性同样必需。
+    "Win32_UI_Shell",
+    # [1.4.38 privacy] GetModuleHandleW（privacy_overlay 注册窗口类用）
+    "Win32_System_LibraryLoader",
+] }
+# DXGI Desktop Duplication 抓屏（GPU 取帧）。windows-sys 是裸 FFI、没有 COM 包装，
+# D3D11/DXGI 这套接口用 windows 写才可维护（该 crate 版本已由 webview2-com 引入，无需新增下载）。
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    # ⚠️ [20260916 夜 · 已作废] 原计划（1.4.5）用 Media Foundation 直接调
+    # 「NVIDIA H.264 Encoder MFT」/ QSV，DXGI 出来的纹理零回读直喂编码器。
+    # **实测全路作废**：4 个适配器 × 2 个编码器的完整交叉矩阵**全部**返回
+    # MF_E_TRANSFORM_ASYNC_LOCKED（0xC00D6D77），即便按官方文档设了
+    # MF_TRANSFORM_ASYNC_UNLOCK=1（读回确为 1）也无效。
+    # 现改走 **NVENC 直连**（见下方 nvenc 依赖 + src/h264.rs），
+    # 驱动自带 nvEncodeAPI64.dll 实测提供 API 12.1，D3D11 纹理零拷贝入编可用。
+    # 这两个 feature 仅保留给已归档的取证 examples（mf_probe.rs / hwenc_probe.rs），
+    # 运行时代码**不再使用** —— 等 examples 归档完就可以删掉这两行。
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    # 1.4.0 换引擎走的是 D3D11 **VideoProcessor**（GPU 内缩放 + 换色），
+    # 全在 Direct3D11 里。
+] }
+
+# 硬编码（阶段①）：NVENC 直连。**内联在 vendor/nvenc**，不用 crates.io 那份 ——
+# crates.io 的 nvenc 声明的是 API 13.0，而本机驱动只提供 API 12.1，
+# 直接被 nvEncOpenEncodeSessionEx 拒掉（InvalidVersion）。内联版已按
+# nv-codec-headers n12.1.14.0 对齐 14 个结构体版本常量，并用 bindgen@12.1 逐项
+# 对拍过结构体尺寸（26/29 一致，不一致的 3 个都不在编码路径上）。
+# 另外做了产线加固：dll 缺失不 panic（非 NVIDIA 机器要能优雅回退 JPEG）、
+# Drop 不刷屏、支持 NVencPicFlags::FORCEIDR。
+# ⚠️ 它依赖 windows 0.61，必须与上面那个 windows 同版本 ——
+# 版本不一致会出现两个不同的 ID3D11Texture2D 类型，纹理根本传不进去。
+nvenc = { path = "vendor/nvenc" }
+
+[profile.release]
+# 20260913g：lto=true + codegen-units=1 让主 crate 单次编译 7 分钟+，本机构建环境
+# 经常在 6 分钟被杀导致永远编不完。改 thin LTO（编译 ~5 倍提速，运行性能差 1-3%，
+# 对抓屏/JPEG 瓶颈无感）。若日后要极限性能再临时切回 full LTO。
+codegen-units = 4
+lto = "thin"
+opt-level = "s"
+strip = true

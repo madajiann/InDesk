@@ -1,0 +1,16 @@
+# 统一换行：源码用 LF，避免 Windows 上 CRLF 污染整个 diff
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.iss text eol=crlf
+
+*.png binary
+*.ico binary
+*.jpg binary
+*.gif binary
+*.exe binary
+*.dll binary
+*.jks binary
+*.keystore binary
