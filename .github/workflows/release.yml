@@ -90,14 +90,46 @@ jobs:
 
       - name: 创建 Release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$DESK_FILE" "$APK_FILE" --clobber
+          REPO="${{ github.repository }}"
+          API="https://api.github.com/repos/$REPO"
+          AUTH="Authorization: Bearer $GITHUB_TOKEN"
+
+          REL_ID=$(curl -s -H "$AUTH" "$API/releases/tags/$TAG" | jq -r '.id // empty')
+
+          if [ -z "$REL_ID" ]; then
+            jq -n \
+              --arg tag "$TAG" \
+              --arg name "InDesk $(jq -r .desktopVersion version.json)" \
+              --rawfile body notes.md \
+              '{tag_name:$tag,name:$name,body:$body,draft:false,prerelease:false}' > payload.json
+            CODE=$(curl -s -o resp.json -w "%{http_code}" -X POST \
+              -H "$AUTH" -H "Accept: application/vnd.github+json" \
+              "$API/releases" -d @payload.json)
+            echo "create release -> HTTP $CODE"
+            head -c 600 resp.json; echo
+            if [ "$CODE" != "201" ]; then
+              echo "::error::创建 Release 失败，HTTP $CODE"; exit 1
+            fi
+            REL_ID=$(jq -r .id resp.json)
           else
-            gh release create "$TAG" \
-              --title "InDesk $(jq -r .desktopVersion version.json)" \
-              --notes-file notes.md \
-              "$DESK_FILE" "$APK_FILE"
+            echo "release 已存在，id=$REL_ID，继续补资产"
           fi
+
+          UP=$(curl -s -H "$AUTH" "$API/releases/$REL_ID" | jq -r .upload_url | sed 's/{.*}//')
+          for f in "$DESK_FILE" "$APK_FILE"; do
+            NAME=$(basename "$f")
+            echo "上传 $NAME ($(stat -c%s "$f") 字节)"
+            CODE=$(curl -s -o up.json -w "%{http_code}" -X POST \
+              -H "$AUTH" -H "Content-Type: application/octet-stream" \
+              --data-binary @"$f" "$UP?name=$NAME")
+            echo "  -> HTTP $CODE"
+            if [ "$CODE" != "201" ]; then
+              head -c 400 up.json; echo
+              echo "::error::上传 $NAME 失败"; exit 1
+            fi
+          done
+          echo "发布完成: https://github.com/$REPO/releases/tag/$TAG"
